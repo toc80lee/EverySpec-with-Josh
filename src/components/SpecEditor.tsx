@@ -8,12 +8,19 @@ import {
   Plus,
   Trash2,
   Table,
+  Mic,
+  MicOff,
+  Sparkles,
+  Loader2,
+  Check,
 } from 'lucide-react';
 import { ProgramSpec, SapModule, TestCase, AlvToolbarButton } from '../types/sap';
 import { FieldCatalogEditor } from './FieldCatalogEditor';
 import { SelectionScreenEditor } from './SelectionScreenEditor';
 import { ToolbarEditor } from './ToolbarEditor';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
+import { useVoiceInput } from '../hooks/useVoiceInput';
+import { requestAiLogicGeneration } from '../utils/aiLogicGenerator';
 
 interface SpecEditorProps {
   spec: ProgramSpec;
@@ -21,11 +28,74 @@ interface SpecEditorProps {
 }
 
 export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
-  // Main Tabs: 1. 프로그램 개요 & 로직 -> 2. Selection Screen -> 3. ALV 그리드
+  // Main Tabs: 1. Program Spec -> 2. Selection Screen -> 3. ALV Grid
   const [mainTab, setMainTab] = useState<'info' | 'selection' | 'alv'>('info');
 
-  // ALV 그리드 Sub Tabs: 1. Layout -> 2. Field Catalog -> 3. Toolbar -> 4. Test Case
+  // ALV Grid Sub Tabs: 1. Layout -> 2. Field Catalog -> 3. Toolbar -> 4. Test Case
   const [alvSubTab, setAlvSubTab] = useState<'layout' | 'fields' | 'toolbar' | 'tests'>('layout');
+
+  const [isGeneratingLogic, setIsGeneratingLogic] = useState(false);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  // Voice input for Business Purpose
+  const businessVoice = useVoiceInput({
+    lang: 'ko-KR',
+    onResult: (finalText) => {
+      const prev = spec.business_purpose || '';
+      const updated = prev ? `${prev} ${finalText}` : finalText;
+      onChange({ ...spec, business_purpose: updated });
+    },
+  });
+
+  // Voice input for Extraction Logic
+  const logicVoice = useVoiceInput({
+    lang: 'ko-KR',
+    onResult: (finalText) => {
+      const prev = spec.data_extraction_logic || '';
+      const updated = prev ? `${prev}\n${finalText}` : finalText;
+      onChange({ ...spec, data_extraction_logic: updated });
+    },
+  });
+
+  // Handle AI Logic Proposal
+  const handleSuggestLogic = async () => {
+    if (!spec.business_purpose?.trim()) {
+      setAiError("먼저 '업무 개요 및 개발 목적'을 텍스트 또는 상단 '음성 입력'으로 입력해주세요.");
+      setTimeout(() => setAiError(null), 6000);
+      return;
+    }
+
+    setIsGeneratingLogic(true);
+    setAiMessage(null);
+    setAiError(null);
+    try {
+      const res = await requestAiLogicGeneration({
+        business_purpose: spec.business_purpose,
+        module: spec.module,
+        program_id: spec.program_id,
+        title: spec.title,
+        existing_fields: spec.field_catalog.map(f => f.fieldname),
+      });
+
+      onChange({
+        ...spec,
+        data_extraction_logic: res.logic,
+      });
+
+      setAiMessage(
+        res.source === 'ai'
+          ? 'Gemini AI가 제안한 데이터 추출 및 가공 로직이 적용되었습니다. 필요에 맞게 자유롭게 수정하세요.'
+          : 'SAP 모듈 표준 추출 로직이 제안되었습니다. 필요에 맞게 자유롭게 수정하세요.'
+      );
+      setTimeout(() => setAiMessage(null), 7000);
+    } catch (err: any) {
+      setAiError(`로직 생성 중 오류가 발생했습니다: ${err.message}`);
+      setTimeout(() => setAiError(null), 7000);
+    } finally {
+      setIsGeneratingLogic(false);
+    }
+  };
 
   // Add test case
   const handleAddTestCase = () => {
@@ -205,29 +275,248 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
               </div>
             </div>
 
+            {/* Business Purpose with Voice Input */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                업무 개요 및 개발 목적 (Business Purpose)
-              </label>
+              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  업무 개요 및 개발 목적 (Business Purpose)
+                </label>
+
+                {/* Voice Input Button & Action Bar */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={businessVoice.toggleListening}
+                    disabled={businessVoice.isTranscribing}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                      businessVoice.isListening
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse ring-2 ring-rose-400'
+                        : businessVoice.isTranscribing
+                        ? 'bg-indigo-600 text-white cursor-wait'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                    }`}
+                    title={
+                      businessVoice.isListening
+                        ? '음성 녹음 완료 및 변환'
+                        : businessVoice.isTranscribing
+                        ? '음성 변환 처리 중...'
+                        : '마이크로 업무 개요 말하기 (음성 인식)'
+                    }
+                  >
+                    {businessVoice.isListening ? (
+                      <>
+                        <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
+                        <span>녹음 완료 (클릭 시 텍스트 변환)</span>
+                      </>
+                    ) : businessVoice.isTranscribing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                        <span>AI 음성 변환 중...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-blue-600" />
+                        <span>음성 입력</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      businessVoice.insertSimulatedVoiceText(
+                        '당월 판매 오더 및 출하 실적을 기준으로 미청구 및 미수금 현황을 모니터링하여 여신 초과 위험을 사전에 방지하는 목적의 ALV 그리드 레포트 개발.'
+                      )
+                    }
+                    className="px-2 py-1 text-[11px] text-slate-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded transition-colors"
+                    title="마이크가 없거나 권한이 차단된 경우 예시 음성 텍스트를 즉시 입력합니다"
+                  >
+                    예시 음성 텍스트
+                  </button>
+                </div>
+              </div>
+
+              {businessVoice.isListening && (
+                <div className="mb-2 p-2.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping shrink-0" />
+                    <span>🎙️ 실시간 음성 듣는 중... 말씀이 끝나면 <strong>[녹음 완료]</strong> 버튼을 누르세요.</span>
+                  </div>
+                  {businessVoice.transcript && (
+                    <span className="font-semibold text-rose-950 italic">"{businessVoice.transcript}"</span>
+                  )}
+                </div>
+              )}
+
+              {businessVoice.isTranscribing && (
+                <div className="mb-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-800 flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
+                  <span>Gemini AI가 고음질로 음성을 분석하여 텍스트로 변환 중입니다...</span>
+                </div>
+              )}
+
+              {businessVoice.errorMessage && (
+                <div className="mb-2 p-2.5 bg-amber-50 border border-amber-300 rounded text-xs text-amber-900 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 font-bold">⚠️</span>
+                    <span>{businessVoice.errorMessage}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={businessVoice.clearError}
+                    className="text-[11px] text-amber-700 hover:underline shrink-0"
+                  >
+                    닫기
+                  </button>
+                </div>
+              )}
+
               <textarea
                 rows={4}
                 value={spec.business_purpose}
                 onChange={(e) => onChange({ ...spec, business_purpose: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-300 rounded p-2.5 text-xs leading-relaxed text-slate-800 focus:bg-white focus:border-blue-500"
-                placeholder="개발 배경, 주요 사용자 및 목적을 기술합니다."
+                className="w-full bg-slate-50 border border-slate-300 rounded p-2.5 text-xs leading-relaxed text-slate-800 focus:bg-white focus:border-blue-500 shadow-inner"
+                placeholder="개발 배경, 주요 사용자 및 목적을 기술합니다. (키보드로 직접 입력하거나 상단 '음성 입력' 버튼으로 말씀하세요. 음성 변환된 텍스트는 언제든 자유롭게 수정할 수 있습니다)"
               />
             </div>
 
+            {/* Data Extraction & Logic with Voice Input and AI Proposal */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                데이터 추출 및 가공 로직 (Data Extraction & Logic)
-              </label>
+              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  데이터 추출 및 가공 로직 (Data Extraction & Logic)
+                </label>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Voice input button */}
+                  <button
+                    type="button"
+                    onClick={logicVoice.toggleListening}
+                    disabled={logicVoice.isTranscribing}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                      logicVoice.isListening
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse ring-2 ring-rose-400'
+                        : logicVoice.isTranscribing
+                        ? 'bg-indigo-600 text-white cursor-wait'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                    }`}
+                    title={
+                      logicVoice.isListening
+                        ? '음성 녹음 완료 및 변환'
+                        : logicVoice.isTranscribing
+                        ? '음성 변환 처리 중...'
+                        : '마이크로 데이터 추출 로직 말하기'
+                    }
+                  >
+                    {logicVoice.isListening ? (
+                      <>
+                        <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
+                        <span>녹음 완료 (클릭 시 텍스트 변환)</span>
+                      </>
+                    ) : logicVoice.isTranscribing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                        <span>AI 음성 변환 중...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-blue-600" />
+                        <span>음성 입력</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      logicVoice.insertSimulatedVoiceText(
+                        '1. VBAK/VBAP 테이블에서 수주 번호 및 품목 정보를 조회하고,\n2. VBRK/VBRP 테이블과 조인하여 청구 현황을 확인한 후,\n3. 미청구 잔액 발생 건에 대해 빨간색 신호등(LIGHTS=3)으로 세팅한다.'
+                      )
+                    }
+                    className="px-2 py-1 text-[11px] text-slate-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded transition-colors"
+                    title="마이크가 없거나 권한이 차단된 경우 예시 로직 음성 텍스트를 즉시 입력합니다"
+                  >
+                    예시 로직 텍스트
+                  </button>
+
+                  {/* AI Suggest Logic Button */}
+                  <button
+                    type="button"
+                    onClick={handleSuggestLogic}
+                    disabled={isGeneratingLogic}
+                    className="px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-md flex items-center gap-1.5 transition-all shadow-2xs disabled:opacity-50 cursor-pointer"
+                    title="입력된 '업무 개요 및 개발 목적'을 바탕으로 SAP 표준 테이블 조인 및 추출 로직을 AI로 자동 제안합니다."
+                  >
+                    {isGeneratingLogic ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                        <span>AI 로직 제안 생성 중...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>✨ 업무개요 기반 로직 자동 제안</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {aiMessage && (
+                <div className="mb-2 p-2.5 bg-emerald-50 border border-emerald-300 rounded text-xs text-emerald-800 flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{aiMessage}</span>
+                </div>
+              )}
+
+              {aiError && (
+                <div className="mb-2 p-2.5 bg-rose-50 border border-rose-300 rounded text-xs text-rose-800 flex items-center gap-2">
+                  <span className="font-bold text-rose-600">⚠️</span>
+                  <span>{aiError}</span>
+                </div>
+              )}
+
+              {logicVoice.isListening && (
+                <div className="mb-2 p-2.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping shrink-0" />
+                    <span>🎙️ 실시간 로직 음성 듣는 중... 말씀이 끝나면 <strong>[녹음 완료]</strong> 버튼을 누르세요.</span>
+                  </div>
+                  {logicVoice.transcript && (
+                    <span className="font-semibold text-rose-950 italic">"{logicVoice.transcript}"</span>
+                  )}
+                </div>
+              )}
+
+              {logicVoice.isTranscribing && (
+                <div className="mb-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-800 flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
+                  <span>Gemini AI가 고음질로 로직 음성을 분석하여 텍스트로 변환 중입니다...</span>
+                </div>
+              )}
+
+              {logicVoice.errorMessage && (
+                <div className="mb-2 p-2.5 bg-amber-50 border border-amber-300 rounded text-xs text-amber-900 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 font-bold">⚠️</span>
+                    <span>{logicVoice.errorMessage}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={logicVoice.clearError}
+                    className="text-[11px] text-amber-700 hover:underline shrink-0"
+                  >
+                    닫기
+                  </button>
+                </div>
+              )}
+
               <textarea
-                rows={5}
+                rows={7}
                 value={spec.data_extraction_logic}
                 onChange={(e) => onChange({ ...spec, data_extraction_logic: e.target.value })}
-                className="w-full bg-slate-900 text-slate-100 border border-slate-800 rounded p-2.5 font-mono text-xs leading-relaxed focus:border-blue-500"
-                placeholder="테이블 조인 조건, WHERE 절 조건, 신호등 판정 로직 등을 작성합니다."
+                className="w-full bg-slate-900 text-slate-100 border border-slate-800 rounded p-2.5 font-mono text-xs leading-relaxed focus:border-blue-500 shadow-inner"
+                placeholder="테이블 조인 조건, WHERE 절 조건, 신호등 판정 로직 등을 작성하거나 상단의 '✨ 업무개요 기반 로직 자동 제안' 버튼을 눌러 AI 추천 로직을 받아보세요. 변환된 텍스트는 언제든 자유롭게 수정할 수 있습니다."
               />
             </div>
           </div>

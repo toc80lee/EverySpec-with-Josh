@@ -120,9 +120,9 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         <button
           onClick={onNewSpec}
-          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 shadow-xs"
+          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 shadow-xs flex items-center gap-1"
         >
-          + 신규 사양서 작성
+          <span>+ New</span>
         </button>
       </div>
     </header>

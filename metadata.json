@@ -1,7 +1,7 @@
 {
   "name": "SAP ALV Spec Studio",
   "description": "SAP ERP 레포트 프로그램(CL_GUI_ALV_GRID) 사양서 작성, 실시간 SAP GUI ALV 목업 시뮬레이터 및 자동 ABAP 소스 코드 생성 플랫폼",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
 

@@ -66,14 +66,14 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
             className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-100 border border-slate-300 rounded transition-colors flex items-center gap-1"
           >
             <Plus className="w-3.5 h-3.5" />
-            + PARAMETERS 추가
+            Parameters
           </button>
           <button
             onClick={() => handleAddParam('SELECT_OPTION')}
             className="px-3 py-1.5 text-xs font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded transition-colors flex items-center gap-1"
           >
             <Plus className="w-3.5 h-3.5 text-blue-600" />
-            + SELECT-OPTIONS 추가
+            Select-options
           </button>
         </div>
       </div>
