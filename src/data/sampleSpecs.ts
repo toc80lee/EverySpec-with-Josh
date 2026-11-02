@@ -1,4 +1,5 @@
 import { ProgramSpec } from '../types/sap';
+import { DEFAULT_CO_DATA_FLOW } from '../utils/dataFlowGenerator';
 
 export const SAMPLE_SPECS: ProgramSpec[] = [
   // 0. CO: Cost Element Group Mass Generation (Matching the user's exact uploaded image)
@@ -17,6 +18,7 @@ export const SAMPLE_SPECS: ProgramSpec[] = [
 - 유효하지 않은 세트 라인(숫자형식 불일치 등) 발생 시 하단 [오류 로그] 서브 화면에 자동 팝업 경고 표시`,
     data_extraction_logic: `1. 테이블: SETHEADER, SETNODE, SETLEAF, CSKB
 2. 검증 로직: 세트 라인의 시작/종료 계정 번호가 숫자 형식이 아닐 경우 오류 테이블(GT_ERROR)에 추가하고 오류 로그 그리드 표시`,
+    data_flow: DEFAULT_CO_DATA_FLOW,
     selection_params: [
       {
         id: 'co-p1',

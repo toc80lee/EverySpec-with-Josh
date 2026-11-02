@@ -2,6 +2,8 @@ import React from 'react';
 import { Printer, Download, FileText, Share2, Upload } from 'lucide-react';
 import { ProgramSpec } from '../types/sap';
 import { generateSpecMarkdown, downloadFile, exportFieldCatalogCsv } from '../utils/specExport';
+import { DataFlowViewer } from './DataFlowViewer';
+import { generateDataFlowFromSpec } from '../utils/dataFlowGenerator';
 
 interface SpecDocumentViewProps {
   spec: ProgramSpec;
@@ -323,13 +325,27 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({ spec, onImpo
           </section>
 
           {/* 5. 처리 로직 명세 */}
-          <section className="space-y-2">
+          <section className="space-y-4">
             <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 pb-1 border-b border-slate-200">
               <span className="w-2 h-2 bg-blue-600 rounded-xs"></span>
               5. 데이터 추출 및 업무 처리 로직 명세
             </h2>
             <div className="p-4 bg-slate-900 text-slate-100 rounded border border-slate-800 font-mono text-xs leading-relaxed whitespace-pre-line">
               {spec.data_extraction_logic}
+            </div>
+
+            {/* 5.1 프로그램 처리 흐름도 (Data Flow Diagram) */}
+            <div className="space-y-2 pt-2">
+              <h3 className="text-xs font-bold text-slate-800">
+                5.1 프로그램 처리 흐름도 (Data Flow Diagram)
+              </h3>
+              <div className="border border-slate-200 rounded-lg p-2 bg-white flex justify-center overflow-x-auto">
+                <DataFlowViewer
+                  config={spec.data_flow || generateDataFlowFromSpec(spec)}
+                  className="w-full max-w-xl border-none shadow-none"
+                  readOnly
+                />
+              </div>
             </div>
           </section>
 

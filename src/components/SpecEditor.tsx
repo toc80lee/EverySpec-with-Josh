@@ -18,6 +18,7 @@ import { ProgramSpec, SapModule, TestCase, AlvToolbarButton } from '../types/sap
 import { FieldCatalogEditor } from './FieldCatalogEditor';
 import { SelectionScreenEditor } from './SelectionScreenEditor';
 import { ToolbarEditor } from './ToolbarEditor';
+import { DataFlowEditor } from './DataFlowEditor';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { requestAiLogicGeneration } from '../utils/aiLogicGenerator';
@@ -184,16 +185,16 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
         {mainTab === 'info' && (
           <div className="space-y-5 max-w-4xl">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">기본 정보 및 업무 사양 명세</h3>
+              <h3 className="text-sm font-bold text-slate-900">Basic Information & Specification</h3>
               <p className="text-xs text-slate-500">
-                SAP 표준 개발 문서 양식에 포함될 프로그램 ID, T-Code, 담당자 및 업무 배경을 입력합니다.
+                Define program identification, transaction code, author, and technical specifications.
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  프로그램 ID (Program Name)
+                  Program ID
                 </label>
                 <input
                   type="text"
@@ -206,7 +207,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  트랜잭션 코드 (T-Code)
+                  Transaction Code
                 </label>
                 <input
                   type="text"
@@ -219,28 +220,28 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  SAP 모듈 (Module)
+                  Module
                 </label>
                 <select
                   value={spec.module}
                   onChange={(e) => onChange({ ...spec, module: e.target.value as SapModule })}
                   className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-semibold text-slate-800 focus:bg-white focus:border-blue-500"
                 >
-                  <option value="SD">SD (영업 및 유통 - Sales & Distribution)</option>
-                  <option value="MM">MM (구매 및 자재관리 - Materials Management)</option>
-                  <option value="FI">FI (재무회계 - Financial Accounting)</option>
-                  <option value="CO">CO (관리회계 - Controlling)</option>
-                  <option value="PP">PP (생산관리 - Production Planning)</option>
-                  <option value="HR">HR (인사관리 - Human Resources)</option>
-                  <option value="QM">QM (품질관리 - Quality Management)</option>
-                  <option value="PM">PM (설비관리 - Plant Maintenance)</option>
-                  <option value="BC">BC (베이시스 - Basis & System)</option>
+                  <option value="SD">SD (Sales & Distribution)</option>
+                  <option value="MM">MM (Materials Management)</option>
+                  <option value="FI">FI (Financial Accounting)</option>
+                  <option value="CO">CO (Controlling)</option>
+                  <option value="PP">PP (Production Planning)</option>
+                  <option value="HR">HR (Human Resources)</option>
+                  <option value="QM">QM (Quality Management)</option>
+                  <option value="PM">PM (Plant Maintenance)</option>
+                  <option value="BC">BC (Basis & System)</option>
                 </select>
               </div>
 
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  프로그램 타이틀 (Description / Title)
+                  Program Title
                 </label>
                 <input
                   type="text"
@@ -252,7 +253,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  작성자 (Author / Consultant)
+                  Author
                 </label>
                 <input
                   type="text"
@@ -264,7 +265,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  대상 SAP 시스템 버전
+                  Target SAP Release
                 </label>
                 <input
                   type="text"
@@ -279,7 +280,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
             <div>
               <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
                 <label className="block text-xs font-semibold text-slate-700">
-                  업무 개요 및 개발 목적 (Business Purpose)
+                  Business Purpose
                 </label>
 
                 {/* Voice Input Button & Action Bar */}
@@ -297,26 +298,26 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                     }`}
                     title={
                       businessVoice.isListening
-                        ? '음성 녹음 완료 및 변환'
+                        ? 'Finish Recording & Transcribe'
                         : businessVoice.isTranscribing
-                        ? '음성 변환 처리 중...'
-                        : '마이크로 업무 개요 말하기 (음성 인식)'
+                        ? 'Transcribing...'
+                        : 'Speak Business Purpose (Voice Input)'
                     }
                   >
                     {businessVoice.isListening ? (
                       <>
                         <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
-                        <span>녹음 완료 (클릭 시 텍스트 변환)</span>
+                        <span>Stop (Transcribing...)</span>
                       </>
                     ) : businessVoice.isTranscribing ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                        <span>AI 음성 변환 중...</span>
+                        <span>AI Transcribing...</span>
                       </>
                     ) : (
                       <>
                         <Mic className="w-3.5 h-3.5 text-blue-600" />
-                        <span>음성 입력</span>
+                        <span>Voice Input</span>
                       </>
                     )}
                   </button>
@@ -325,13 +326,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                     type="button"
                     onClick={() =>
                       businessVoice.insertSimulatedVoiceText(
-                        '당월 판매 오더 및 출하 실적을 기준으로 미청구 및 미수금 현황을 모니터링하여 여신 초과 위험을 사전에 방지하는 목적의 ALV 그리드 레포트 개발.'
+                        'Monitor monthly sales orders and billing status against credit limits to identify delinquent accounts and revenue risks via an ALV grid report.'
                       )
                     }
                     className="px-2 py-1 text-[11px] text-slate-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded transition-colors"
-                    title="마이크가 없거나 권한이 차단된 경우 예시 음성 텍스트를 즉시 입력합니다"
+                    title="Insert sample voice text directly"
                   >
-                    예시 음성 텍스트
+                    Voice Sample
                   </button>
                 </div>
               </div>
@@ -340,7 +341,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                 <div className="mb-2 p-2.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping shrink-0" />
-                    <span>🎙️ 실시간 음성 듣는 중... 말씀이 끝나면 <strong>[녹음 완료]</strong> 버튼을 누르세요.</span>
+                    <span>🎙️ Listening to speech... Click <strong>[Stop]</strong> when finished speaking.</span>
                   </div>
                   {businessVoice.transcript && (
                     <span className="font-semibold text-rose-950 italic">"{businessVoice.transcript}"</span>
@@ -351,7 +352,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
               {businessVoice.isTranscribing && (
                 <div className="mb-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-800 flex items-center gap-2">
                   <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
-                  <span>Gemini AI가 고음질로 음성을 분석하여 텍스트로 변환 중입니다...</span>
+                  <span>Gemini AI is analyzing and transcribing speech to text...</span>
                 </div>
               )}
 
@@ -366,7 +367,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                     onClick={businessVoice.clearError}
                     className="text-[11px] text-amber-700 hover:underline shrink-0"
                   >
-                    닫기
+                    Dismiss
                   </button>
                 </div>
               )}
@@ -376,7 +377,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                 value={spec.business_purpose}
                 onChange={(e) => onChange({ ...spec, business_purpose: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-300 rounded p-2.5 text-xs leading-relaxed text-slate-800 focus:bg-white focus:border-blue-500 shadow-inner"
-                placeholder="개발 배경, 주요 사용자 및 목적을 기술합니다. (키보드로 직접 입력하거나 상단 '음성 입력' 버튼으로 말씀하세요. 음성 변환된 텍스트는 언제든 자유롭게 수정할 수 있습니다)"
+                placeholder="Describe business background, target users, and key objectives. (Type directly or use Voice Input above. Generated text can be freely edited)"
               />
             </div>
 
@@ -384,7 +385,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
             <div>
               <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
                 <label className="block text-xs font-semibold text-slate-700">
-                  데이터 추출 및 가공 로직 (Data Extraction & Logic)
+                  Data Extraction & Logic
                 </label>
 
                 <div className="flex items-center gap-2 flex-wrap">
@@ -402,26 +403,26 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                     }`}
                     title={
                       logicVoice.isListening
-                        ? '음성 녹음 완료 및 변환'
+                        ? 'Finish Recording & Transcribe'
                         : logicVoice.isTranscribing
-                        ? '음성 변환 처리 중...'
-                        : '마이크로 데이터 추출 로직 말하기'
+                        ? 'Transcribing...'
+                        : 'Speak Data Extraction Logic (Voice Input)'
                     }
                   >
                     {logicVoice.isListening ? (
                       <>
                         <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
-                        <span>녹음 완료 (클릭 시 텍스트 변환)</span>
+                        <span>Stop (Transcribing...)</span>
                       </>
                     ) : logicVoice.isTranscribing ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                        <span>AI 음성 변환 중...</span>
+                        <span>AI Transcribing...</span>
                       </>
                     ) : (
                       <>
                         <Mic className="w-3.5 h-3.5 text-blue-600" />
-                        <span>음성 입력</span>
+                        <span>Voice Input</span>
                       </>
                     )}
                   </button>
@@ -430,13 +431,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                     type="button"
                     onClick={() =>
                       logicVoice.insertSimulatedVoiceText(
-                        '1. VBAK/VBAP 테이블에서 수주 번호 및 품목 정보를 조회하고,\n2. VBRK/VBRP 테이블과 조인하여 청구 현황을 확인한 후,\n3. 미청구 잔액 발생 건에 대해 빨간색 신호등(LIGHTS=3)으로 세팅한다.'
+                        '1. Query VBAK/VBAP for sales order headers and items,\n2. Join with VBRK/VBRP to evaluate billing status,\n3. Set status lights (LIGHTS=3 Red) for unbilled overdue orders.'
                       )
                     }
                     className="px-2 py-1 text-[11px] text-slate-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded transition-colors"
-                    title="마이크가 없거나 권한이 차단된 경우 예시 로직 음성 텍스트를 즉시 입력합니다"
+                    title="Insert sample logic text directly"
                   >
-                    예시 로직 텍스트
+                    Sample Logic
                   </button>
 
                   {/* AI Suggest Logic Button */}
@@ -445,17 +446,17 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                     onClick={handleSuggestLogic}
                     disabled={isGeneratingLogic}
                     className="px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-md flex items-center gap-1.5 transition-all shadow-2xs disabled:opacity-50 cursor-pointer"
-                    title="입력된 '업무 개요 및 개발 목적'을 바탕으로 SAP 표준 테이블 조인 및 추출 로직을 AI로 자동 제안합니다."
+                    title="Automatically propose SAP standard table joins and extraction logic using Gemini AI based on Business Purpose."
                   >
                     {isGeneratingLogic ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                        <span>AI 로직 제안 생성 중...</span>
+                        <span>Generating Logic...</span>
                       </>
                     ) : (
                       <>
                         <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>✨ 업무개요 기반 로직 자동 제안</span>
+                        <span>✨ Propose Logic with AI</span>
                       </>
                     )}
                   </button>
@@ -480,7 +481,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                 <div className="mb-2 p-2.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping shrink-0" />
-                    <span>🎙️ 실시간 로직 음성 듣는 중... 말씀이 끝나면 <strong>[녹음 완료]</strong> 버튼을 누르세요.</span>
+                    <span>🎙️ Listening to logic speech... Click <strong>[Stop]</strong> when finished speaking.</span>
                   </div>
                   {logicVoice.transcript && (
                     <span className="font-semibold text-rose-950 italic">"{logicVoice.transcript}"</span>
@@ -491,7 +492,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
               {logicVoice.isTranscribing && (
                 <div className="mb-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-800 flex items-center gap-2">
                   <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
-                  <span>Gemini AI가 고음질로 로직 음성을 분석하여 텍스트로 변환 중입니다...</span>
+                  <span>Gemini AI is analyzing and transcribing logic speech to text...</span>
                 </div>
               )}
 
@@ -506,7 +507,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                     onClick={logicVoice.clearError}
                     className="text-[11px] text-amber-700 hover:underline shrink-0"
                   >
-                    닫기
+                    Dismiss
                   </button>
                 </div>
               )}
@@ -516,9 +517,15 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                 value={spec.data_extraction_logic}
                 onChange={(e) => onChange({ ...spec, data_extraction_logic: e.target.value })}
                 className="w-full bg-slate-900 text-slate-100 border border-slate-800 rounded p-2.5 font-mono text-xs leading-relaxed focus:border-blue-500 shadow-inner"
-                placeholder="테이블 조인 조건, WHERE 절 조건, 신호등 판정 로직 등을 작성하거나 상단의 '✨ 업무개요 기반 로직 자동 제안' 버튼을 눌러 AI 추천 로직을 받아보세요. 변환된 텍스트는 언제든 자유롭게 수정할 수 있습니다."
+                placeholder="Define database tables, JOIN and WHERE conditions, status traffic lights logic (LIGHTS=1/2/3), or click '✨ Propose Logic with AI' above to receive recommendations. Transcribed text can be edited freely at any time."
               />
             </div>
+
+            {/* Data Flow Diagram & Editor (Located directly below Data Extraction & Logic) */}
+            <DataFlowEditor
+              spec={spec}
+              onChange={(updatedFlow) => onChange({ ...spec, data_flow: updatedFlow })}
+            />
           </div>
         )}
 

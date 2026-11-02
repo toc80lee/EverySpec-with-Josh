@@ -96,6 +96,30 @@ export interface TestCase {
   expected: string;        // 예상 결과
 }
 
+export type FlowStepKind = 'start' | 'process' | 'decision' | 'screen' | 'bapi' | 'end';
+
+export interface DataFlowStep {
+  id: string;
+  step_no: string;         // e.g. "1)", "2)", "5-1)", "7-2-1)"
+  label: string;           // e.g. "초기화", "선택화면", "입력값 점검", "처리 옵션"
+  kind: FlowStepKind;      // process, decision, screen, bapi, start, end
+  description?: string;    // 설명
+  branch_left?: string;    // 왼쪽 분기명 (e.g. "조회", "종료", "성공")
+  branch_right?: string;   // 오른쪽 분기명 (e.g. "생성", "생성", "실패")
+}
+
+export interface DataFlowDatabase {
+  id: string;
+  name: string;            // e.g. "T004\nT004T" or "SETHEADER\nSETHEADERT\nSETNODE\nSETLEAF"
+  target_steps: string[];  // 연결될 단계 번호들 (e.g. ["2)", "3)"] 또는 ["4)", "6)"])
+}
+
+export interface DataFlowDiagramConfig {
+  title?: string;
+  steps: DataFlowStep[];
+  databases: DataFlowDatabase[];
+}
+
 export interface ProgramSpec {
   id: string;
   program_id: string;      // e.g. ZR_SD_ORDER_MONITOR
@@ -108,6 +132,7 @@ export interface ProgramSpec {
   program_type: 'REPORT' | 'TRANSACTION';
   business_purpose: string; // 개발 배경 및 업무 목적
   data_extraction_logic: string; // DB 테이블 조인 및 추출 조건 설명
+  data_flow?: DataFlowDiagramConfig; // 처리 흐름도 및 데이터 흐름 다이어그램
   selection_params: SelectionParameter[];
   field_catalog: AlvField[];
   layout: AlvLayout;
@@ -117,3 +142,4 @@ export interface ProgramSpec {
   mock_rows: Record<string, any>[];
   error_logs?: AlvErrorLog[];
 }
+
