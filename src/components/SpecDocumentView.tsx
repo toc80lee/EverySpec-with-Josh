@@ -3,6 +3,7 @@ import { Printer, Download, FileText, Share2, Upload } from 'lucide-react';
 import { ProgramSpec } from '../types/sap';
 import { generateSpecMarkdown, downloadFile, exportFieldCatalogCsv } from '../utils/specExport';
 import { DataFlowViewer } from './DataFlowViewer';
+import { InteractiveDataFlowCanvas } from './InteractiveDataFlowCanvas';
 import { generateDataFlowFromSpec } from '../utils/dataFlowGenerator';
 
 interface SpecDocumentViewProps {
@@ -340,9 +341,10 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({ spec, onImpo
                 5.1 프로그램 처리 흐름도 (Data Flow Diagram)
               </h3>
               <div className="border border-slate-200 rounded-lg p-2 bg-white flex justify-center overflow-x-auto">
-                <DataFlowViewer
-                  config={spec.data_flow || generateDataFlowFromSpec(spec)}
-                  className="w-full max-w-xl border-none shadow-none"
+                <InteractiveDataFlowCanvas
+                  spec={spec}
+                  config={spec.data_flow}
+                  onChange={() => {}}
                   readOnly
                 />
               </div>

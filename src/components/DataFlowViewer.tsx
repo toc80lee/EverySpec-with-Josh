@@ -23,12 +23,12 @@ export const DataFlowViewer: React.FC<DataFlowViewerProps> = ({
 
   // Helper to find step by step_no
   const findStep = (stepNo: string): DataFlowStep | undefined => {
-    return config.steps.find((s) => s.step_no === stepNo || s.label.includes(stepNo));
+    return config.steps?.find((s) => s.step_no === stepNo || s.label.includes(stepNo));
   };
 
   // Helper for DB cylinder table text
-  const db1 = config.databases[0] || { name: 'T004\nT004T' };
-  const db2 = config.databases[1] || { name: 'SETHEADER\nSETHEADERT\nSETNODE\nSETLEAF' };
+  const db1 = config.databases?.[0] || { name: 'T004\nT004T' };
+  const db2 = config.databases?.[1] || { name: 'SETHEADER\nSETHEADERT\nSETNODE\nSETLEAF' };
 
   // Step texts
   const startStep = findStep('시작') || { label: '시작', id: 'start' };

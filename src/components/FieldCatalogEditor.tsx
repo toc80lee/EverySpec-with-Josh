@@ -196,15 +196,16 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
                 <th className="py-2.5 px-2 min-w-36">컬럼명 (COLTEXT)</th>
                 <th className="py-2.5 px-2 w-24">타입</th>
                 <th className="py-2.5 px-2 w-16 text-center">길이</th>
-                <th className="py-2.5 px-2 w-16 text-center">정렬</th>
+                <th className="py-2.5 px-2 w-16 text-center">Just</th>
+                <th className="py-2.5 px-2 w-16 text-center" title="SAP ALV 색상코드 (예: C300, C100, C500, C600)">Color</th>
                 <th className="py-2.5 px-2 text-center w-12" title="Key Field (고정 열)">
                   <span className="flex items-center justify-center gap-0.5 text-blue-700">
                     <Key className="w-3 h-3" /> Key
                   </span>
                 </th>
-                <th className="py-2.5 px-2 text-center w-12" title="Hotspot (클릭 시 T-Code 이동)">
+                <th className="py-2.5 px-2 text-center w-14" title="Hotspot (클릭 시 T-Code 이동)">
                   <span className="flex items-center justify-center gap-0.5 text-indigo-700">
-                    <Link className="w-3 h-3" /> Link
+                    <Link className="w-3 h-3" /> Hotspot
                   </span>
                 </th>
                 <th className="py-2.5 px-2 text-center w-12" title="Checkbox 형태">
@@ -213,22 +214,23 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
                   </span>
                 </th>
                 <th className="py-2.5 px-2 text-center w-12" title="Edit (그리드 셀 직접 편집)">
-                  수정
+                  Edit
                 </th>
-                <th className="py-2.5 px-2 text-center w-12" title="DO_SUM (하단 합계 산출)">
+                <th className="py-2.5 px-2 text-center w-12" title="DO_SUM (하단 합계 산출 - CHAR 비활성화)">
                   <span className="flex items-center justify-center gap-0.5 text-emerald-700">
                     <DollarSign className="w-3 h-3" /> Σ
                   </span>
                 </th>
-                <th className="py-2.5 px-2 w-24">참조 테이블</th>
-                <th className="py-2.5 px-2 w-24">이동 T-Code</th>
+                <th className="py-2.5 px-2 w-24">Ref.Table</th>
+                <th className="py-2.5 px-2 w-24">Ref.Field</th>
+                <th className="py-2.5 px-2 w-24">T-Code</th>
                 <th className="py-2.5 px-2 text-center w-20">관리</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
               {spec.field_catalog.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="py-8 text-center text-slate-400 font-sans">
+                  <td colSpan={16} className="py-8 text-center text-slate-400 font-sans">
                     등록된 필드가 없습니다. 위의 [SAP 표준 데이터사전 필드]를 선택하여 추가하세요.
                   </td>
                 </tr>
@@ -272,9 +274,13 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
                       <td className="py-1.5 px-2">
                         <select
                           value={field.datatype}
-                          onChange={(e) =>
-                            handleUpdateField(idx, { datatype: e.target.value as SapDataType })
-                          }
+                          onChange={(e) => {
+                            const newType = e.target.value as SapDataType;
+                            handleUpdateField(idx, {
+                              datatype: newType,
+                              ...(newType === 'CHAR' ? { do_sum: false } : {}),
+                            });
+                          }}
                           className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 text-slate-700"
                         >
                           <option value="CHAR">CHAR</option>
@@ -300,19 +306,33 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
                         />
                       </td>
 
-                      {/* Justification */}
+                      {/* Justification (Just) */}
                       <td className="py-1.5 px-2">
                         <select
                           value={field.just}
                           onChange={(e) =>
                             handleUpdateField(idx, { just: e.target.value as TextAlignment })
                           }
-                          className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 text-center"
+                          className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 text-center font-bold"
                         >
-                          <option value="L">좌(L)</option>
-                          <option value="C">중(C)</option>
-                          <option value="R">우(R)</option>
+                          <option value="L">L</option>
+                          <option value="C">C</option>
+                          <option value="R">R</option>
                         </select>
+                      </td>
+
+                      {/* Color (SAP ALV emphasize code e.g. C300, C100) */}
+                      <td className="py-1.5 px-2">
+                        <input
+                          type="text"
+                          value={field.emphasize || ''}
+                          onChange={(e) =>
+                            handleUpdateField(idx, { emphasize: e.target.value.toUpperCase() })
+                          }
+                          placeholder="C300"
+                          title="SAP ALV 색상코드 (예: C300, C310, C100, C500, C600)"
+                          className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-center font-bold text-[10px]"
+                        />
                       </td>
 
                       {/* Key */}
@@ -355,13 +375,23 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
                         />
                       </td>
 
-                      {/* Do Sum */}
+                      {/* Do Sum - disabled if CHAR */}
                       <td className="py-1.5 px-2 text-center">
                         <input
                           type="checkbox"
-                          checked={field.do_sum}
+                          checked={field.datatype === 'CHAR' ? false : field.do_sum}
+                          disabled={field.datatype === 'CHAR'}
+                          title={
+                            field.datatype === 'CHAR'
+                              ? 'CHAR(문자형) 필드는 합계(DO_SUM)를 지정할 수 없습니다.'
+                              : '하단 합계(Σ) 계산'
+                          }
                           onChange={(e) => handleUpdateField(idx, { do_sum: e.target.checked })}
-                          className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                          className={`w-4 h-4 rounded ${
+                            field.datatype === 'CHAR'
+                              ? 'opacity-25 cursor-not-allowed bg-slate-200'
+                              : 'accent-emerald-600 cursor-pointer'
+                          }`}
                         />
                       </td>
 
@@ -374,6 +404,19 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
                             handleUpdateField(idx, { ref_table: e.target.value.toUpperCase() })
                           }
                           placeholder="VBAK"
+                          className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
+                        />
+                      </td>
+
+                      {/* Ref Field */}
+                      <td className="py-1.5 px-2">
+                        <input
+                          type="text"
+                          value={field.ref_field || ''}
+                          onChange={(e) =>
+                            handleUpdateField(idx, { ref_field: e.target.value.toUpperCase() })
+                          }
+                          placeholder="VBELN"
                           className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
                         />
                       </td>

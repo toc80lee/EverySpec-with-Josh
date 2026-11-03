@@ -87,27 +87,27 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="버튼명/코드 검색..."
-              className="text-xs pl-8 pr-2.5 py-1.5 bg-white border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 w-44"
+              placeholder="Search button text / code..."
+              className="text-xs pl-8 pr-2.5 py-1.5 bg-white border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 w-48"
             />
           </div>
 
           <button
             onClick={handleAddButton}
-            className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded transition-colors flex items-center gap-1 shadow-xs"
+            className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            + 사용자 정의 버튼 추가
+            + Add Custom Button
           </button>
         </div>
 
         <button
           onClick={handleResetDefaults}
-          title="캡처 이미지 분석 기본 툴바(16개)로 리셋합니다"
-          className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded transition-colors flex items-center gap-1.5"
+          title="Restore standard 16 ALV toolbar buttons"
+          className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded transition-colors flex items-center gap-1.5 cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-          이미지 기본 툴바 복원 (16개 버튼)
+          Restore Standard Toolbar (16 Buttons)
         </button>
       </div>
 
@@ -116,15 +116,15 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
         <table className="w-full text-xs text-left border-collapse">
           <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
             <tr>
-              <th className="py-2.5 px-3 w-12 text-center">표시</th>
-              <th className="py-2.5 px-3 w-12 text-center">아이콘</th>
-              <th className="py-2.5 px-3 w-28">기능 코드 (Function)</th>
-              <th className="py-2.5 px-3 min-w-32">버튼명 (Text)</th>
-              <th className="py-2.5 px-3 min-w-48">툴팁 설명 (Quickinfo)</th>
-              <th className="py-2.5 px-3 text-center w-16">구분선</th>
-              <th className="py-2.5 px-3 text-center w-16">비활성</th>
-              <th className="py-2.5 px-3 text-center w-16">종류</th>
-              <th className="py-2.5 px-3 text-center w-20">순서/관리</th>
+              <th className="py-2.5 px-3 w-12 text-center">Display</th>
+              <th className="py-2.5 px-3 w-12 text-center">Icon</th>
+              <th className="py-2.5 px-3 w-28">Function</th>
+              <th className="py-2.5 px-3 min-w-32">Button Text</th>
+              <th className="py-2.5 px-3 min-w-48">Quickinfo</th>
+              <th className="py-2.5 px-3 text-center w-16">Separator</th>
+              <th className="py-2.5 px-3 text-center w-16">Disabled</th>
+              <th className="py-2.5 px-3 text-center w-16">Type</th>
+              <th className="py-2.5 px-3 text-center w-20">Order / Manage</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
@@ -136,7 +136,7 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
                     type="checkbox"
                     checked={btn.visible !== false}
                     onChange={(e) => handleUpdate(btn.id, { visible: e.target.checked })}
-                    title={btn.visible !== false ? '툴바에 표시 중 (체크 해제 시 숨김)' : '툴바에서 숨김 상태 (체크 시 표시)'}
+                    title={btn.visible !== false ? 'Visible on toolbar' : 'Hidden on toolbar'}
                     className="w-4 h-4 accent-blue-600 rounded cursor-pointer"
                   />
                 </td>
@@ -148,7 +148,7 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
                     style={{
                       background: btn.disabled ? '#ede4cc' : 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)',
                     }}
-                    title={`아이콘: ${btn.icon}`}
+                    title={`Icon: ${btn.icon}`}
                   >
                     <SapToolbarIcon func={btn.function} iconName={btn.icon} />
                   </div>
@@ -191,7 +191,7 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
                     type="checkbox"
                     checked={!!btn.separator_before}
                     onChange={(e) => handleUpdate(btn.id, { separator_before: e.target.checked })}
-                    title="버튼 앞에 구분선(|) 삽입"
+                    title="Insert separator line (|) before button"
                     className="w-4 h-4 accent-slate-600 rounded cursor-pointer"
                   />
                 </td>
@@ -202,15 +202,15 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
                     type="checkbox"
                     checked={btn.disabled}
                     onChange={(e) => handleUpdate(btn.id, { disabled: e.target.checked })}
-                    title="버튼 비활성화 (회색 처리)"
+                    title="Disable button"
                     className="w-4 h-4 accent-red-600 rounded cursor-pointer"
                   />
                 </td>
 
                 {/* Standard vs Custom */}
                 <td className="py-1.5 px-3 text-center font-sans">
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${btn.is_standard ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                    {btn.is_standard ? '표준' : '사용자'}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${btn.is_standard ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                    {btn.is_standard ? 'Standard' : 'Custom'}
                   </span>
                 </td>
 
@@ -220,24 +220,24 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
                     <button
                       onClick={() => handleMove(idx, 'up')}
                       disabled={idx === 0}
-                      title="앞으로 이동"
-                      className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20"
+                      title="Move up"
+                      className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20 cursor-pointer"
                     >
                       <ArrowUp className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => handleMove(idx, 'down')}
                       disabled={idx === buttons.length - 1}
-                      title="뒤로 이동"
-                      className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20"
+                      title="Move down"
+                      className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20 cursor-pointer"
                     >
                       <ArrowDown className="w-3.5 h-3.5" />
                     </button>
                     {!btn.is_standard && (
                       <button
                         onClick={() => handleDelete(btn.id)}
-                        title="버튼 삭제"
-                        className="p-1 text-slate-400 hover:text-red-600"
+                        title="Delete button"
+                        className="p-1 text-slate-400 hover:text-red-600 cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -252,7 +252,7 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
 
       {/* Tip guide */}
       <div className="p-3 bg-blue-50 border border-blue-200 rounded text-blue-900 text-xs">
-        <strong>ALV Toolbar 가이드:</strong> 캡처 이미지의 표준 16개 버튼이 기본으로 등록되어 있습니다. 각 버튼의 표시/숨김, 비활성화, 툴팁, 커맨드 코드를 자유롭게 변경할 수 있으며, 우측 ALV GRID TOOLBAR 화면에 즉시 실시간 반영됩니다.
+        <strong>ALV Toolbar Guide:</strong> Standard 16 SAP buttons are registered by default. You can customize button visibility, disabled state, text, quickinfo tooltip, and command functions in real time.
       </div>
     </div>
   );

@@ -10,8 +10,8 @@ interface AlvToolbarProps {
     label: string;
     iconType: 'DOC' | 'GREEN' | 'YELLOW' | 'RED' | 'FOLDER' | 'OTHER';
   }[];
-  selectedStatusFilter: string | null;
-  onSelectStatusFilter: (statusKey: string | null) => void;
+  selectedStatusFilters: string[];
+  onToggleStatusFilter: (statusKey: string) => void;
   onOpenDetail: () => void;
   onSort: (asc: boolean) => void;
   onFilter: () => void;
@@ -287,8 +287,8 @@ export const SapToolbarIcon: React.FC<{ func: string; iconName?: string }> = ({ 
 export const AlvToolbar: React.FC<AlvToolbarProps> = ({
   spec,
   statusSummaries,
-  selectedStatusFilter,
-  onSelectStatusFilter,
+  selectedStatusFilters,
+  onToggleStatusFilter,
   onOpenDetail,
   onSort,
   onFilter,
@@ -438,37 +438,33 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
           </div>
         )}
 
-        {/* Dynamic Status (Sta.) Count Buttons - Positioned at the VERY END! */}
+        {/* Dynamic Status (Sta.) Multi-Select Filter Buttons - Default: all selected */}
         {statusSummaries.length > 0 && (
-          <div className="flex items-center gap-1" title="Sta. 필터 버튼: 눌러진 경우 해당 상태의 행만 그리드에 출력됩니다.">
+          <div className="flex items-center gap-1" title="Sta. 신호등 상태 필터 (다중 선택 지원: 클릭 시 해당 상태 표시/숨김 토글)">
             {statusSummaries.map((s) => {
-              const isPressed = selectedStatusFilter === s.statusKey;
+              const isSelected = selectedStatusFilters.includes(s.statusKey);
               return (
                 <button
                   key={s.statusKey}
-                  onClick={() => {
-                    if (selectedStatusFilter === s.statusKey) {
-                      onSelectStatusFilter(null);
-                    } else {
-                      onSelectStatusFilter(s.statusKey);
-                    }
-                  }}
-                  title={`Sta. [${s.label}] 필터: 총 ${s.count}건 (${isPressed ? '눌러짐(활성) - 클릭시 전체 표시' : '클릭하여 이 상태만 출력'})`}
-                  className={`h-6 px-1.5 rounded flex items-center gap-1 border transition-all cursor-pointer shadow-2xs ${
-                    isPressed
-                      ? 'border-[#7a5814] bg-[#e6b93c] shadow-inner font-extrabold text-slate-900 scale-95 ring-2 ring-amber-500'
-                      : 'border-[#c0a662] hover:brightness-105 active:scale-95 text-slate-800'
+                  onClick={() => onToggleStatusFilter(s.statusKey)}
+                  title={`Sta. [${s.label}] 필터: ${s.count}건 (${
+                    isSelected ? '선택됨 (출력 중) - 클릭시 숨김' : '해제됨 (숨겨짐) - 클릭시 출력'
+                  })`}
+                  className={`h-6 px-1.5 rounded flex items-center gap-1 border transition-all cursor-pointer shadow-2xs select-none ${
+                    isSelected
+                      ? 'border-[#7a5814] font-extrabold text-slate-900 ring-1 ring-amber-500 scale-100'
+                      : 'border-slate-300 opacity-40 hover:opacity-75 grayscale text-slate-400 scale-95'
                   }`}
                   style={{
-                    background: isPressed
-                      ? 'linear-gradient(to bottom, #e8b628 0%, #d89f14 100%)'
-                      : 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)',
+                    background: isSelected
+                      ? 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)'
+                      : '#e2e8f0',
                   }}
                 >
                   {/* Exact Sta. Icon */}
                   {renderStaIcon(s.iconType)}
                   {/* Count of rows with this Sta. */}
-                  <span className="text-[11px] font-bold font-mono text-slate-900 leading-none">
+                  <span className={`text-[11px] font-bold font-mono leading-none ${isSelected ? 'text-slate-900' : 'text-slate-500'}`}>
                     {s.count}
                   </span>
                 </button>

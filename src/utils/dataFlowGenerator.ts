@@ -1,149 +1,67 @@
-import { DataFlowDiagramConfig, ProgramSpec, SapModule } from '../types/sap';
+import {
+  DataFlowDiagramConfig,
+  ProgramSpec,
+  CanvasNode,
+  CanvasEdge,
+  FlowShapeType,
+} from '../types/sap';
 
 /**
  * Standard SAP Data Flow Template matching the user's reference diagram
+ * Represented as customizable interactive Canvas nodes and connected edges
  */
+export const DEFAULT_CANVAS_NODES: CanvasNode[] = [
+  { id: 'node-start', type: 'start', label: '시작', x: 270, y: 30, width: 120, height: 38 },
+  { id: 'node-1', type: 'process', label: '1) 초기화', x: 270, y: 95, width: 120, height: 38, description: 'INITIALIZATION' },
+  { id: 'node-2', type: 'process', label: '2) 선택화면', x: 270, y: 165, width: 120, height: 38, description: 'AT SELECTION-SCREEN OUTPUT' },
+  { id: 'node-3', type: 'process', label: '3) 입력값 점검', x: 270, y: 235, width: 120, height: 38, description: 'AT SELECTION-SCREEN' },
+  { id: 'node-db1', type: 'database', label: 'T004\nT004T', x: 50, y: 185, width: 120, height: 60, description: '마스터 테이블' },
+  { id: 'node-opt', type: 'decision', label: '처리 옵션', x: 275, y: 305, width: 110, height: 46, description: '조회 vs 생성' },
+  { id: 'node-4', type: 'process', label: '4) 조회', x: 175, y: 385, width: 110, height: 38, description: 'START-OF-SELECTION' },
+  { id: 'node-5', type: 'process', label: '5) 생성', x: 355, y: 385, width: 110, height: 38, description: '생성 처리 모드' },
+  { id: 'node-5-1', type: 'process', label: '5-1) 엑셀 업로드', x: 355, y: 455, width: 110, height: 38, description: '엑셀 데이터 파싱' },
+  { id: 'node-db2', type: 'database', label: 'SETHEADER\nSETHEADERT\nSETNODE\nSETLEAF', x: 50, y: 485, width: 120, height: 85, description: '계층구조 세트 테이블' },
+  { id: 'node-6', type: 'process', label: '6) 데이터 가공', x: 265, y: 545, width: 130, height: 40, description: 'END-OF-SELECTION' },
+  { id: 'node-7', type: 'process', label: '7) 100번 화면 호출', x: 265, y: 620, width: 130, height: 38, description: 'CALL SCREEN 100' },
+  { id: 'node-cmd', type: 'decision', label: '사용자 명령', x: 275, y: 695, width: 110, height: 46, description: 'PAI 이벤트' },
+  { id: 'node-7-1', type: 'process', label: '7-1) 종료', x: 175, y: 770, width: 110, height: 38, description: 'LEAVE TO SCREEN 0' },
+  { id: 'node-7-2', type: 'process', label: '7-2) 생성', x: 355, y: 770, width: 110, height: 38, description: 'BAPI 파라미터 매핑' },
+  { id: 'node-bapi', type: 'decision', label: 'BAPI 실행', x: 355, y: 840, width: 110, height: 46, description: 'BAPI 호출' },
+  { id: 'node-7-2-1', type: 'process', label: '7-2-1) 생성 성공', x: 260, y: 915, width: 120, height: 38, description: 'BAPI_COMMIT' },
+  { id: 'node-7-2-2', type: 'process', label: '7-2-2) 생성 실패', x: 420, y: 915, width: 120, height: 38, description: '오류 롤백 및 가공 재시도' },
+  { id: 'node-end', type: 'end', label: '종료', x: 270, y: 995, width: 120, height: 38 },
+];
+
+export const DEFAULT_CANVAS_EDGES: CanvasEdge[] = [
+  { id: 'e1', from: 'node-start', to: 'node-1', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e2', from: 'node-1', to: 'node-2', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e3', from: 'node-2', to: 'node-3', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e4', from: 'node-3', to: 'node-opt', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e-db1-2', from: 'node-db1', to: 'node-2', fromPort: 'right', toPort: 'left' },
+  { id: 'e-db1-3', from: 'node-db1', to: 'node-3', fromPort: 'right', toPort: 'left' },
+  { id: 'e-opt-4', from: 'node-opt', to: 'node-4', fromPort: 'left', toPort: 'top', label: '조회' },
+  { id: 'e-opt-5', from: 'node-opt', to: 'node-5', fromPort: 'right', toPort: 'top', label: '생성' },
+  { id: 'e-5-51', from: 'node-5', to: 'node-5-1', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e-db2-4', from: 'node-db2', to: 'node-4', fromPort: 'top', toPort: 'left' },
+  { id: 'e-db2-6', from: 'node-db2', to: 'node-6', fromPort: 'right', toPort: 'left' },
+  { id: 'e-4-6', from: 'node-4', to: 'node-6', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e-51-6', from: 'node-5-1', to: 'node-6', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e-6-7', from: 'node-6', to: 'node-7', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e-7-cmd', from: 'node-7', to: 'node-cmd', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e-cmd-71', from: 'node-cmd', to: 'node-7-1', fromPort: 'left', toPort: 'top', label: '종료' },
+  { id: 'e-cmd-72', from: 'node-cmd', to: 'node-7-2', fromPort: 'right', toPort: 'top', label: '생성' },
+  { id: 'e-72-bapi', from: 'node-7-2', to: 'node-bapi', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e-bapi-ok', from: 'node-bapi', to: 'node-7-2-1', fromPort: 'left', toPort: 'top', label: '성공' },
+  { id: 'e-bapi-fail', from: 'node-bapi', to: 'node-7-2-2', fromPort: 'right', toPort: 'top', label: '실패' },
+  { id: 'e-71-end', from: 'node-7-1', to: 'node-end', fromPort: 'bottom', toPort: 'left' },
+  { id: 'e-ok-end', from: 'node-7-2-1', to: 'node-end', fromPort: 'bottom', toPort: 'top' },
+  { id: 'e-fail-loop', from: 'node-7-2-2', to: 'node-6', fromPort: 'right', toPort: 'right', label: '가공 복귀', style: 'orthogonal' },
+];
+
 export const DEFAULT_CO_DATA_FLOW: DataFlowDiagramConfig = {
   title: '프로그램 처리 흐름도 (Data Flow Diagram)',
-  steps: [
-    {
-      id: 'step-start',
-      step_no: '시작',
-      label: '시작',
-      kind: 'start',
-      description: '트랜잭션 실행 (T-Code / SE38 실행)',
-    },
-    {
-      id: 'step-1',
-      step_no: '1)',
-      label: '1) 초기화',
-      kind: 'process',
-      description: 'INITIALIZATION: 기본값 설정 (회사코드, 관리회계영역, 기준일자 등)',
-    },
-    {
-      id: 'step-2',
-      step_no: '2)',
-      label: '2) 선택화면',
-      kind: 'screen',
-      description: 'AT SELECTION-SCREEN OUTPUT: 선택화면 출력 및 필수/옵션 조건 입력',
-    },
-    {
-      id: 'step-3',
-      step_no: '3)',
-      label: '3) 입력값 점검',
-      kind: 'process',
-      description: 'AT SELECTION-SCREEN: 기준 테이블 마스터 검증 및 필수 입력값 체크',
-    },
-    {
-      id: 'step-decision-opt',
-      step_no: '옵션',
-      label: '처리 옵션',
-      kind: 'decision',
-      description: '라디오 버튼 선택 여부 판정 (조회 모드 vs 생성 모드)',
-      branch_left: '조회',
-      branch_right: '생성',
-    },
-    {
-      id: 'step-4',
-      step_no: '4)',
-      label: '4) 조회',
-      kind: 'process',
-      description: 'START-OF-SELECTION: 조건에 따른 기존 계층구조 및 데이터 조회',
-    },
-    {
-      id: 'step-5',
-      step_no: '5)',
-      label: '5) 생성',
-      kind: 'process',
-      description: '신규 생성 모드 진입',
-    },
-    {
-      id: 'step-5-1',
-      step_no: '5-1)',
-      label: '5-1) 엑셀 업로드',
-      kind: 'process',
-      description: '로컬 PC 엑셀 양식 데이터 파싱 및 내부 테이블(ITAB) 적재',
-    },
-    {
-      id: 'step-6',
-      step_no: '6)',
-      label: '6) 데이터 가공',
-      kind: 'process',
-      description: 'END-OF-SELECTION: 데이터 정합성 검증, 상태 신호등(LIGHTS) 및 셀 스타일 가공',
-    },
-    {
-      id: 'step-7',
-      step_no: '7)',
-      label: '7) 100번 화면 호출',
-      kind: 'screen',
-      description: 'CALL SCREEN 100: CL_GUI_ALV_GRID 컨테이너 및 툴바 활성화',
-    },
-    {
-      id: 'step-decision-cmd',
-      step_no: '명령',
-      label: '사용자 명령',
-      kind: 'decision',
-      description: 'USER_COMMAND (PAI): 저장, 실행, 종료 버튼 이벤트 분기',
-      branch_left: '종료',
-      branch_right: '생성',
-    },
-    {
-      id: 'step-7-1',
-      step_no: '7-1)',
-      label: '7-1) 종료',
-      kind: 'process',
-      description: '화면 종료 및 프로그램 세션 정리 (LEAVE TO SCREEN 0)',
-    },
-    {
-      id: 'step-7-2',
-      step_no: '7-2)',
-      label: '7-2) 생성',
-      kind: 'process',
-      description: 'BAPI/Function 호출 준비 및 전달 파라미터 매핑',
-    },
-    {
-      id: 'step-decision-bapi',
-      step_no: 'BAPI',
-      label: 'BAPI 실행',
-      kind: 'bapi',
-      description: '표준 BAPI 실행 및 BAPIRET2 리턴 메시지 수신',
-      branch_left: '생성 성공',
-      branch_right: '생성 실패',
-    },
-    {
-      id: 'step-7-2-1',
-      step_no: '7-2-1)',
-      label: '7-2-1) 생성 성공',
-      kind: 'process',
-      description: 'BAPI_TRANSACTION_COMMIT 실행 및 완료 메시지 출력',
-    },
-    {
-      id: 'step-7-2-2',
-      step_no: '7-2-2)',
-      label: '7-2-2) 생성 실패',
-      kind: 'process',
-      description: 'BAPI_TRANSACTION_ROLLBACK 및 오류 로그 저장 후 가공 단계로 복귀',
-    },
-    {
-      id: 'step-end',
-      step_no: '종료',
-      label: '종료',
-      kind: 'end',
-      description: '프로그램 실행 완료 및 종료',
-    },
-  ],
-  databases: [
-    {
-      id: 'db-1',
-      name: 'T004\nT004T',
-      target_steps: ['2)', '3)'],
-    },
-    {
-      id: 'db-2',
-      name: 'SETHEADER\nSETHEADERT\nSETNODE\nSETLEAF',
-      target_steps: ['4)', '6)'],
-    },
-  ],
+  nodes: DEFAULT_CANVAS_NODES,
+  edges: DEFAULT_CANVAS_EDGES,
 };
 
 /**
@@ -152,20 +70,19 @@ export const DEFAULT_CO_DATA_FLOW: DataFlowDiagramConfig = {
 export function generateDataFlowFromSpec(spec: ProgramSpec): DataFlowDiagramConfig {
   const module = spec.module || 'CO';
 
-  // Extract custom referenced tables from fields & params if available
+  // Extract custom referenced tables
   const detectedTables = new Set<string>();
-  spec.selection_params?.forEach(p => {
+  spec.selection_params?.forEach((p) => {
     if (p.ref_table) detectedTables.add(p.ref_table);
   });
-  spec.field_catalog?.forEach(f => {
+  spec.field_catalog?.forEach((f) => {
     if (f.ref_table) detectedTables.add(f.ref_table);
   });
 
   const tableList = Array.from(detectedTables);
 
-  // Setup module-specific DB cylinder tables
-  let db1Tables = 'T001\nT001Z';
-  let db2Tables = 'BKPF\nBSEG';
+  let db1Tables = 'T004\nT004T';
+  let db2Tables = 'SETHEADER\nSETHEADERT\nSETNODE\nSETLEAF';
 
   if (module === 'SD') {
     db1Tables = 'TVKO\nTVTW';
@@ -184,21 +101,19 @@ export function generateDataFlowFromSpec(spec: ProgramSpec): DataFlowDiagramConf
     db2Tables = tableList.slice(2, 6).join('\n') || 'VBAK\nVBAP';
   }
 
-  // Clone base flow and personalize labels & DBs
-  const baseFlow = JSON.parse(JSON.stringify(DEFAULT_CO_DATA_FLOW)) as DataFlowDiagramConfig;
-  baseFlow.title = `${spec.program_id || 'ALV'} 처리 흐름도 (Data Flow Diagram)`;
-  baseFlow.databases = [
-    {
-      id: `db-1-${Date.now()}`,
-      name: db1Tables,
-      target_steps: ['2)', '3)'],
-    },
-    {
-      id: `db-2-${Date.now()}`,
-      name: db2Tables,
-      target_steps: ['4)', '6)'],
-    },
-  ];
+  // Clone nodes and update DB cylinder table labels
+  const nodes = JSON.parse(JSON.stringify(DEFAULT_CANVAS_NODES)) as CanvasNode[];
+  const edges = JSON.parse(JSON.stringify(DEFAULT_CANVAS_EDGES)) as CanvasEdge[];
 
-  return baseFlow;
+  const db1Node = nodes.find((n) => n.id === 'node-db1');
+  if (db1Node) db1Node.label = db1Tables;
+
+  const db2Node = nodes.find((n) => n.id === 'node-db2');
+  if (db2Node) db2Node.label = db2Tables;
+
+  return {
+    title: `${spec.program_id || 'ALV'} 처리 흐름도 (Data Flow Diagram)`,
+    nodes,
+    edges,
+  };
 }

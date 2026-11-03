@@ -8,7 +8,7 @@ export type SapDataType = 'CHAR' | 'NUMC' | 'DATS' | 'TIMS' | 'CURR' | 'DEC' | '
 
 export type TextAlignment = 'L' | 'C' | 'R';
 
-export type SelectionKind = 'PARAMETER' | 'SELECT_OPTION';
+export type SelectionKind = 'PARAMETER' | 'SELECT_OPTION' | 'RADIOBUTTON' | 'CHECKBOX';
 
 export interface AlvErrorLog {
   id: string;
@@ -44,8 +44,8 @@ export interface AlvField {
 
 export interface SelectionParameter {
   id: string;
-  kind: SelectionKind;     // PARAMETER or SELECT_OPTION
-  name: string;            // e.g. P_BUKRS, S_VBELN
+  kind: SelectionKind;     // PARAMETER, SELECT_OPTION, RADIOBUTTON, CHECKBOX
+  name: string;            // e.g. P_BUKRS, S_VBELN, P_RAD1
   text: string;            // e.g. 회사코드, 판매오더
   ref_table?: string;      // e.g. T001
   ref_field?: string;      // e.g. BUKRS
@@ -54,6 +54,10 @@ export interface SelectionParameter {
   obligatory: boolean;     // 필수 입력 여부
   default_val: string;     // 기본값
   memory_id?: string;      // SPA/GPA 메모리 ID
+  // Selection Screen Box / Frame & Radio Grouping
+  block_title?: string;    // e.g. "기본 조회 조건" / "Basic Criteria" (SELECTION-SCREEN BEGIN OF BLOCK)
+  block_id?: string;       // e.g. "B1", "B2"
+  radio_group?: string;    // e.g. "R_GRP1" (RADIOBUTTON GROUP)
   // Mockup values for simulation
   low?: string;
   high?: string;
@@ -114,16 +118,55 @@ export interface DataFlowDatabase {
   target_steps: string[];  // 연결될 단계 번호들 (e.g. ["2)", "3)"] 또는 ["4)", "6)"])
 }
 
+export type FlowShapeType = 'start' | 'process' | 'decision' | 'database' | 'end';
+export type PortPosition = 'top' | 'bottom' | 'left' | 'right' | 'auto';
+
+export interface CanvasNode {
+  id: string;
+  type: FlowShapeType;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  description?: string;
+  sublabel?: string;
+}
+
+export interface CanvasEdge {
+  id: string;
+  from: string;
+  to: string;
+  fromPort?: PortPosition;
+  toPort?: PortPosition;
+  label?: string;
+  style?: 'orthogonal' | 'curved' | 'straight';
+}
+
 export interface DataFlowDiagramConfig {
   title?: string;
-  steps: DataFlowStep[];
-  databases: DataFlowDatabase[];
+  steps?: DataFlowStep[];
+  databases?: DataFlowDatabase[];
+  nodes?: CanvasNode[];
+  edges?: CanvasEdge[];
+}
+
+export interface SubAlvGridConfig {
+  grid_name?: string;     // e.g. "Item ALV Grid"
+  layout: AlvLayout;
+  field_catalog: AlvField[];
+  custom_toolbar?: ToolbarCustomButton[];
+  toolbar_buttons?: AlvToolbarButton[];
+  test_cases?: TestCase[];
+  mock_rows: Record<string, any>[];
+  foreign_key?: string;    // e.g. "VBELN" to link to header row
 }
 
 export interface ProgramSpec {
   id: string;
-  program_id: string;      // e.g. ZR_SD_ORDER_MONITOR
-  tcode: string;           // e.g. ZSD001
+  sample_type?: string;    // e.g. "01", "02", "03"
+  program_id: string;      // e.g. ZR_CUSTOM_REPORT
+  tcode: string;           // e.g. ZREP01
   title: string;           // e.g. 영업 오더 진행 및 출하 모니터링
   module: SapModule;       // SD, MM, FI, etc.
   author: string;          // e.g. 홍길동 책임
@@ -141,5 +184,7 @@ export interface ProgramSpec {
   test_cases: TestCase[];
   mock_rows: Record<string, any>[];
   error_logs?: AlvErrorLog[];
+  item_grid?: SubAlvGridConfig; // For Master-Detail ALV (sample_type === '02')
 }
+
 

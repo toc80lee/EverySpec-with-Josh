@@ -34,6 +34,83 @@ interface StatusSummary {
   iconType: 'DOC' | 'GREEN' | 'YELLOW' | 'RED' | 'FOLDER' | 'OTHER';
 }
 
+/**
+ * SAP ALV Color Code interpreter
+ * Format: C<color><intensified><inverse>
+ * e.g., C300: yellow bg, C310: light yellow bg, C301: yellow text, C100: key blue
+ */
+export const getSapAlvCellStyle = (
+  emphasize?: string,
+  isKey = false,
+  isSelected = false,
+  isZebra = false
+) => {
+  if (isSelected) {
+    return { bg: 'bg-[#fff5cc]', text: 'text-slate-900 font-bold' };
+  }
+  if (isKey) {
+    return { bg: 'bg-[#bce0fd]', text: 'text-slate-900 font-semibold' };
+  }
+  if (!emphasize || !emphasize.startsWith('C')) {
+    return {
+      bg: isZebra ? 'bg-[#f4f7fb]' : 'bg-white',
+      text: 'text-slate-800',
+    };
+  }
+
+  const code = emphasize.toUpperCase();
+  const colorNum = code.charAt(1);
+  const intensified = code.charAt(2); // '1' or '0'
+  const inverse = code.charAt(3);    // '1' or '0'
+
+  switch (colorNum) {
+    case '1': // Blue (Key / information)
+      return {
+        bg: intensified === '1' ? 'bg-blue-100' : 'bg-blue-200/70',
+        text: 'text-blue-950 font-semibold',
+      };
+    case '2': // Gray
+      return {
+        bg: intensified === '1' ? 'bg-slate-200' : 'bg-slate-100',
+        text: 'text-slate-900',
+      };
+    case '3': // Yellow (C300, C310, C301)
+      if (intensified === '1') {
+        return { bg: 'bg-[#fefce8]', text: 'text-[#854d0e] font-medium' }; // C310 Light yellow
+      }
+      if (inverse === '1') {
+        return { bg: 'bg-white', text: 'text-[#b45309] font-bold' }; // C301 Yellow text
+      }
+      return { bg: 'bg-[#fef08a]', text: 'text-[#713f12] font-semibold' }; // C300 Yellow background
+    case '4': // Cyan
+      return {
+        bg: intensified === '1' ? 'bg-cyan-100' : 'bg-cyan-200/70',
+        text: 'text-cyan-950 font-medium',
+      };
+    case '5': // Green
+      return {
+        bg: intensified === '1' ? 'bg-emerald-100' : 'bg-emerald-200/70',
+        text: 'text-emerald-950 font-semibold',
+      };
+    case '6': // Red
+      return {
+        bg: intensified === '1' ? 'bg-rose-100' : 'bg-rose-200/70',
+        text: 'text-rose-950 font-semibold',
+      };
+    case '7': // Orange
+      return {
+        bg: intensified === '1' ? 'bg-orange-100' : 'bg-orange-200/70',
+        text: 'text-orange-950 font-semibold',
+      };
+    default:
+      return {
+        bg: isZebra ? 'bg-[#f4f7fb]' : 'bg-white',
+        text: 'text-slate-800',
+      };
+  }
+};
+
+
 export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }) => {
   // Screen mode: 'alv' (ALV 그리드 결과) or 'selection' (조회조건)
   const [screenMode, setScreenMode] = useState<'alv' | 'selection'>('alv');
@@ -46,8 +123,30 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
   const [filterQuery, setFilterQuery] = useState<string>('');
   const [showTotals, setShowTotals] = useState<boolean>(true);
 
-  // Status (Sta.) Active Filter: when an icon button at the end is pressed, only rows with that status are shown
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string | null>(null);
+  // Status (Sta.) Active Multi-Select Filters: default state has all statuses selected
+  const [selectedStatusFilters, setSelectedStatusFilters] = useState<string[]>([
+    '1',
+    '2',
+    '3',
+    'DOC',
+    'FOLDER',
+  ]);
+
+  // Toggle single status filter in multi-select mode
+  const handleToggleStatusFilter = (statusKey: string) => {
+    setSelectedStatusFilters((prev) => {
+      const exists = prev.includes(statusKey);
+      const next = exists ? prev.filter((k) => k !== statusKey) : [...prev, statusKey];
+      setStatusMessage({
+        text: exists
+          ? `상태 [${statusKey}] 필터 해제(숨김)되었습니다.`
+          : `상태 [${statusKey}] 필터 선택(출력)되었습니다.`,
+        type: 'S',
+      });
+      return next;
+    });
+  };
+
 
   // Error Log sub-window visibility (defaults to true if spec has error_logs, exactly matching screenshot)
   const [showErrorLog, setShowErrorLog] = useState<boolean>(
@@ -82,6 +181,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
   // Find the Sta. (Status / 상태) field in Field Catalog
   const statusField = useMemo(() => {
     return spec.field_catalog.find(f =>
+      f.fieldname === 'ZICON' ||
       f.fieldname === 'STATUS' ||
       f.fieldname === 'LIGHTS' ||
       f.coltext === '상태' ||
@@ -144,11 +244,12 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
   const displayedRows = useMemo(() => {
     let result = [...rows];
 
-    // Sta. status filter: when a status button is pressed, only rows with that status are shown!
-    if (selectedStatusFilter && statusField) {
+    // Sta. status multi-select filter: only rows matching one of the selected statuses are shown
+    if (statusField && selectedStatusFilters) {
       result = result.filter(row => {
         const val = String(row[statusField.fieldname] || '').trim();
-        return val === selectedStatusFilter;
+        if (!val) return true;
+        return selectedStatusFilters.includes(val);
       });
     }
 
@@ -174,7 +275,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
       });
     }
     return result;
-  }, [rows, selectedStatusFilter, statusField, filterQuery, sortField, sortAsc]);
+  }, [rows, selectedStatusFilters, statusField, filterQuery, sortField, sortAsc]);
 
   // Totals calculations for DO_SUM fields
   const totals = useMemo(() => {
@@ -189,6 +290,42 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
     });
     return sumMap;
   }, [spec.field_catalog, displayedRows]);
+
+  // Master-Detail ALV Resolution (Sample Type 02)
+  const isMasterDetail = spec.sample_type === '02' && !!spec.item_grid;
+  const foreignKey = spec.item_grid?.foreign_key || 'VBELN';
+  const selectedHeaderRow =
+    selectedRowIndex !== null && displayedRows[selectedRowIndex]
+      ? displayedRows[selectedRowIndex]
+      : displayedRows[0];
+  const selectedHeaderKey = selectedHeaderRow
+    ? selectedHeaderRow[foreignKey] || selectedHeaderRow.DOC_NO || selectedHeaderRow.VBELN
+    : null;
+
+  const [selectedItemRowIndex, setSelectedItemRowIndex] = useState<number | null>(0);
+
+  const itemRows = useMemo(() => {
+    if (!spec.item_grid?.mock_rows) return [];
+    if (!selectedHeaderKey) return spec.item_grid.mock_rows;
+    const filtered = spec.item_grid.mock_rows.filter(
+      (r) => String(r[foreignKey] || '').trim() === String(selectedHeaderKey).trim()
+    );
+    return filtered.length > 0 ? filtered : spec.item_grid.mock_rows;
+  }, [spec.item_grid?.mock_rows, foreignKey, selectedHeaderKey]);
+
+  const itemTotals = useMemo(() => {
+    if (!spec.item_grid?.field_catalog) return {};
+    const sumMap: Record<string, number> = {};
+    spec.item_grid.field_catalog.forEach((f) => {
+      if (f.do_sum) {
+        sumMap[f.fieldname] = itemRows.reduce((acc, row) => {
+          const val = Number(row[f.fieldname]) || 0;
+          return acc + val;
+        }, 0);
+      }
+    });
+    return sumMap;
+  }, [spec.item_grid?.field_catalog, itemRows]);
 
   // Cycle Sta. status on click to test dynamic button generation
   const handleCycleStatus = (rowIndex: number, fieldname: string) => {
@@ -366,22 +503,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
         <AlvToolbar
           spec={spec}
           statusSummaries={statusSummaries}
-          selectedStatusFilter={selectedStatusFilter}
-          onSelectStatusFilter={(statusKey) => {
-            setSelectedStatusFilter(statusKey);
-            if (statusKey) {
-              const summary = statusSummaries.find(s => s.statusKey === statusKey);
-              setStatusMessage({
-                text: `상태 [${summary?.label || statusKey}] ${summary?.count || 0}건만 출력 중 (눌러짐 상태)`,
-                type: 'S',
-              });
-            } else {
-              setStatusMessage({
-                text: `전체 ${rows.length}건 출력 (상태 필터 해제)`,
-                type: 'S',
-              });
-            }
-          }}
+          selectedStatusFilters={selectedStatusFilters}
+          onToggleStatusFilter={handleToggleStatusFilter}
           onOpenDetail={() => setIsDetailModalOpen(true)}
           onSort={(asc) => handleSort(sortField || spec.field_catalog[2]?.fieldname || 'SET_NAME', asc)}
           onFilter={() => {
@@ -394,9 +517,10 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
           onExport={handleExportCsv}
           onPrint={() => window.print()}
           onInfo={() =>
-            alert(
-              `프로그램 ID: ${spec.program_id}\n트랜잭션: ${spec.tcode}\n작성자: ${spec.author}\n모듈: ${spec.module}`
-            )
+            setStatusMessage({
+              text: `프로그램 ID: ${spec.program_id} | 트랜잭션: ${spec.tcode} | 작성자: ${spec.author} | 모듈: ${spec.module}`,
+              type: 'S',
+            })
           }
           onCustomAction={(btn) => {
             setStatusMessage({
@@ -471,180 +595,578 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
             </div>
           </div>
         ) : (
-          /* ALV Grid Table (100% matched to screenshot!) */
-          <div className="flex-1 flex flex-col overflow-auto relative">
-            <table className="w-full border-collapse text-xs font-sans whitespace-nowrap">
-              {/* Header Row */}
-              <thead className="sticky top-0 z-10 bg-[#d8e4f0] border-b border-[#9bbadb] text-slate-900">
-                <tr>
-                  {/* Top-left corner cell with table icon */}
-                  <th className="w-8 px-1 py-1 border-r border-[#9bbadb] bg-[#c8d8ea] text-center">
-                    <div className="w-3.5 h-3.5 mx-auto border border-slate-600 bg-white flex items-center justify-center">
-                      <span className="text-[9px] text-blue-900 leading-none font-bold">▶</span>
+          /* ALV Grid Container: Master-Detail Split or Single ALV */
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            {isMasterDetail && spec.item_grid ? (
+              /* ============================================================= */
+              /* MASTER-DETAIL ALV: TOP (HEADER) + BOTTOM (ITEM) PANE           */
+              /* ============================================================= */
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {/* 1. TOP PANE: Header ALV Grid */}
+                <div className="flex-[5] flex flex-col overflow-hidden border-b-2 border-[#9bbadb]">
+                  {/* Header Grid Titlebar */}
+                  <div className="bg-[#e4edf7] px-3 py-1.5 border-b border-[#9bbadb] text-xs font-bold text-slate-800 flex items-center justify-between shadow-2xs shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <Table className="w-3.5 h-3.5 text-blue-800" />
+                      <span>{spec.layout?.grid_title || 'Header ALV Grid (오더 헤더)'}</span>
                     </div>
-                  </th>
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-slate-600 font-normal">
+                      <span>SEL_MODE: {spec.layout?.sel_mode || 'A'}</span>
+                      <span>|</span>
+                      <span>총 {displayedRows.length}건</span>
+                      <span>|</span>
+                      <span className="font-bold text-blue-800">선택 오더: {selectedHeaderKey || '-'}</span>
+                    </div>
+                  </div>
 
-                  {/* Columns */}
-                  {spec.field_catalog.map((field) => {
-                    const isKey = field.key;
-                    return (
-                      <th
-                        key={field.id || field.fieldname}
-                        style={{
-                          minWidth: Math.max(field.outputlen * 9, 65),
-                        }}
-                        className={`px-2 py-1.5 border-r border-[#9bbadb] text-left font-semibold text-xs ${
-                          isKey ? 'bg-[#bce0fd] text-slate-900' : 'bg-[#d8e4f0] text-slate-900'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <span>{field.coltext}</span>
-                          {sortField === field.fieldname && (
-                            <span className="text-blue-800 font-bold text-[10px]">
-                              {sortAsc ? '▲' : '▼'}
-                            </span>
-                          )}
+                  {/* Header Grid Table */}
+                  <div className="flex-1 overflow-auto">
+                    <table className="w-full border-collapse text-xs font-sans whitespace-nowrap">
+                      <thead className="sticky top-0 z-10 bg-[#d8e4f0] border-b border-[#9bbadb] text-slate-900">
+                        <tr>
+                          <th className="w-8 px-1 py-1 border-r border-[#9bbadb] bg-[#c8d8ea] text-center">
+                            <div className="w-3.5 h-3.5 mx-auto border border-slate-600 bg-white flex items-center justify-center">
+                              <span className="text-[9px] text-blue-900 leading-none font-bold">▶</span>
+                            </div>
+                          </th>
+                          {spec.field_catalog.map((field) => (
+                            <th
+                              key={field.id || field.fieldname}
+                              style={{ minWidth: Math.max(field.outputlen * 9, 65) }}
+                              className={`px-2 py-1.5 border-r border-[#9bbadb] text-left font-semibold text-xs ${
+                                field.key ? 'bg-[#bce0fd] text-slate-900' : 'bg-[#d8e4f0] text-slate-900'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1">
+                                <span>{field.coltext}</span>
+                                {sortField === field.fieldname && (
+                                  <span className="text-blue-800 font-bold text-[10px]">
+                                    {sortAsc ? '▲' : '▼'}
+                                  </span>
+                                )}
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {displayedRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={spec.field_catalog.length + 1} className="py-8 text-center text-slate-400">
+                              헤더 데이터가 없습니다.
+                            </td>
+                          </tr>
+                        ) : (
+                          displayedRows.map((row, rIdx) => {
+                            const isSelected = selectedRowIndex === rIdx;
+                            const isZebra = !!spec.layout?.zebra && rIdx % 2 === 1;
+                            return (
+                              <tr
+                                key={rIdx}
+                                onClick={() => {
+                                  setSelectedRowIndex(rIdx);
+                                  setStatusMessage({
+                                    text: `헤더 오더 [${row[foreignKey] || row.DOC_NO || rIdx + 1}] 선택됨 (하단 품목 그리드 자동 연동)`,
+                                    type: 'S',
+                                  });
+                                }}
+                                className={`hover:bg-[#ebf3fb] cursor-pointer ${
+                                  isSelected ? 'bg-[#fff5cc]' : isZebra ? 'bg-[#f4f7fb]' : 'bg-white'
+                                }`}
+                              >
+                                <td className="w-8 px-1 py-1 text-center bg-[#d4d0c8] border-r border-[#9bbadb] border-t border-l border-[#f0ede6] border-b border-[#808080] font-mono text-[10px] text-slate-700 font-semibold select-none">
+                                  {rIdx + 1}
+                                </td>
+                                {spec.field_catalog.map((field) => {
+                                  const val = row[field.fieldname];
+                                  const isKey = field.key;
+                                  const isStatusCol =
+                                    field.fieldname === 'ZICON' ||
+                                    field.fieldname === 'STATUS' ||
+                                    field.fieldname === 'LIGHTS' ||
+                                    field.coltext === '상태';
+
+                                  const cellStyle = getSapAlvCellStyle(
+                                    field.emphasize,
+                                    isKey,
+                                    isSelected,
+                                    isZebra
+                                  );
+
+                                  return (
+                                    <td
+                                      key={field.id || field.fieldname}
+                                      onClick={(e) => {
+                                        if (isStatusCol) {
+                                          e.stopPropagation();
+                                          handleCycleStatus(rIdx, field.fieldname);
+                                        }
+                                      }}
+                                      className={`px-2 py-1 border-r border-[#d8d8d8] text-xs font-mono ${
+                                        field.just === 'R'
+                                          ? 'text-right'
+                                          : field.just === 'C'
+                                          ? 'text-center'
+                                          : 'text-left'
+                                      } ${cellStyle.bg} ${cellStyle.text}`}
+                                    >
+                                      {isStatusCol || val === '1' || val === '2' || val === '3' ? (
+                                        <div className="flex items-center justify-center">
+                                          {val === '1' || val === 1 ? (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border border-emerald-700 shadow-xs inline-block" />
+                                          ) : val === '2' || val === 2 ? (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-amber-400 border border-amber-600 shadow-xs inline-block" />
+                                          ) : (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-700 shadow-xs inline-block" />
+                                          )}
+                                        </div>
+                                      ) : field.hotspot ? (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setDrilldownInfo({
+                                              tcode: field.drilldown_tcode || 'VA03',
+                                              fieldValue: String(val),
+                                              fieldName: field.fieldname,
+                                              fieldLabel: field.coltext,
+                                              rowRecord: row,
+                                            })
+                                          }
+                                          className="text-blue-700 hover:text-blue-900 underline font-semibold cursor-pointer"
+                                        >
+                                          {val !== undefined && val !== null ? String(val) : ''}
+                                        </button>
+                                      ) : (
+                                        <span>{val !== undefined && val !== null ? String(val) : ''}</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+
+                      {/* Header ALV Total Row (DO_SUM) */}
+                      {spec.field_catalog.some((f) => f.do_sum) && (
+                        <tfoot className="sticky bottom-0 z-10 bg-[#e4edf7] border-t-2 border-[#8ba9cb] font-bold text-slate-900 shadow-xs">
+                          <tr className="bg-[#e0ecf8]">
+                            <td className="w-8 px-1 py-1 text-center bg-[#c8d8ea] border-r border-[#9bbadb] text-[10px] text-blue-900 font-bold select-none">
+                              Σ
+                            </td>
+                            {spec.field_catalog.map((field, idx) => {
+                              const hasSum = !!field.do_sum;
+                              const sumVal = totals[field.fieldname];
+                              const isFirstTextCol = idx === 0 || (idx === 1 && (spec.field_catalog[0].fieldname === 'ZICON' || spec.field_catalog[0].fieldname === 'STATUS'));
+                              return (
+                                <td
+                                  key={field.id || field.fieldname}
+                                  className={`px-2 py-1.5 border-r border-[#9bbadb] text-xs font-mono ${
+                                    hasSum ? 'text-right text-blue-950 bg-[#d5e6f7]' : isFirstTextCol ? 'text-left text-slate-800' : 'text-center text-slate-400'
+                                  }`}
+                                >
+                                  {hasSum ? (
+                                    <span className="font-extrabold text-blue-900">
+                                      {Number(sumVal || 0).toLocaleString()}
+                                    </span>
+                                  ) : isFirstTextCol ? (
+                                    <span className="font-bold text-slate-700">* Total (합계)</span>
+                                  ) : (
+                                    ''
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+
+                {/* 2. BOTTOM PANE: Item ALV Grid */}
+                <div className="flex-[5] flex flex-col overflow-hidden bg-white">
+                  {/* Item Grid Titlebar */}
+                  <div className="bg-[#e9f0f8] px-3 py-1.5 border-b border-[#9bbadb] text-xs font-bold text-slate-800 flex items-center justify-between shadow-2xs shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <Table className="w-3.5 h-3.5 text-indigo-700" />
+                      <span>{spec.item_grid.layout?.grid_title || 'Item ALV Grid (오더 품목)'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-slate-600 font-normal">
+                      <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-900 font-semibold border border-blue-200">
+                        연계 오더: {selectedHeaderKey || '전체'} ({itemRows.length}건)
+                      </span>
+                      <span>|</span>
+                      <span>SEL_MODE: {spec.item_grid.layout?.sel_mode || 'A'}</span>
+                    </div>
+                  </div>
+
+                  {/* Item Grid Table */}
+                  <div className="flex-1 overflow-auto">
+                    <table className="w-full border-collapse text-xs font-sans whitespace-nowrap">
+                      <thead className="sticky top-0 z-10 bg-[#d8e4f0] border-b border-[#9bbadb] text-slate-900">
+                        <tr>
+                          <th className="w-8 px-1 py-1 border-r border-[#9bbadb] bg-[#c8d8ea] text-center">
+                            <div className="w-3.5 h-3.5 mx-auto border border-slate-600 bg-white flex items-center justify-center">
+                              <span className="text-[9px] text-blue-900 leading-none font-bold">▶</span>
+                            </div>
+                          </th>
+                          {spec.item_grid.field_catalog.map((field) => (
+                            <th
+                              key={field.id || field.fieldname}
+                              style={{ minWidth: Math.max(field.outputlen * 9, 65) }}
+                              className={`px-2 py-1.5 border-r border-[#9bbadb] text-left font-semibold text-xs ${
+                                field.key ? 'bg-[#bce0fd] text-slate-900' : 'bg-[#d8e4f0] text-slate-900'
+                              }`}
+                            >
+                              <span>{field.coltext}</span>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {itemRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={spec.item_grid.field_catalog.length + 1} className="py-8 text-center text-slate-400">
+                              선택된 오더({selectedHeaderKey || '-'})에 해당하는 품목 데이터가 없습니다.
+                            </td>
+                          </tr>
+                        ) : (
+                          itemRows.map((row, rIdx) => {
+                            const isSelected = selectedItemRowIndex === rIdx;
+                            const isZebra = !!spec.item_grid?.layout?.zebra && rIdx % 2 === 1;
+                            return (
+                              <tr
+                                key={rIdx}
+                                onClick={() => setSelectedItemRowIndex(rIdx)}
+                                className={`hover:bg-[#ebf3fb] cursor-pointer ${
+                                  isSelected ? 'bg-[#fff5cc]' : isZebra ? 'bg-[#f4f7fb]' : 'bg-white'
+                                }`}
+                              >
+                                <td className="w-8 px-1 py-1 text-center bg-[#d4d0c8] border-r border-[#9bbadb] border-t border-l border-[#f0ede6] border-b border-[#808080] font-mono text-[10px] text-slate-700 font-semibold select-none">
+                                  {rIdx + 1}
+                                </td>
+                                {spec.item_grid!.field_catalog.map((field) => {
+                                  const val = row[field.fieldname];
+                                  const isKey = field.key;
+                                  const isStatusCol =
+                                    field.fieldname === 'ZICON' ||
+                                    field.fieldname === 'STATUS' ||
+                                    field.fieldname === 'LIGHTS' ||
+                                    field.coltext === '상태';
+
+                                  const cellStyle = getSapAlvCellStyle(
+                                    field.emphasize,
+                                    isKey,
+                                    isSelected,
+                                    isZebra
+                                  );
+
+                                  return (
+                                    <td
+                                      key={field.id || field.fieldname}
+                                      className={`px-2 py-1 border-r border-[#d8d8d8] text-xs font-mono ${
+                                        field.just === 'R'
+                                          ? 'text-right'
+                                          : field.just === 'C'
+                                          ? 'text-center'
+                                          : 'text-left'
+                                      } ${cellStyle.bg} ${cellStyle.text}`}
+                                    >
+                                      {isStatusCol || val === '1' || val === '2' || val === '3' ? (
+                                        <div className="flex items-center justify-center">
+                                          {val === '1' || val === 1 ? (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border border-emerald-700 shadow-xs inline-block" />
+                                          ) : val === '2' || val === 2 ? (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-amber-400 border border-amber-600 shadow-xs inline-block" />
+                                          ) : (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-700 shadow-xs inline-block" />
+                                          )}
+                                        </div>
+                                      ) : field.hotspot ? (
+                                        <span className="text-blue-700 underline font-semibold">
+                                          {val !== undefined && val !== null ? String(val) : ''}
+                                        </span>
+                                      ) : (
+                                        <span>{val !== undefined && val !== null ? String(val) : ''}</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+
+                      {/* Item Grid Total Row (DO_SUM) */}
+                      {spec.item_grid.field_catalog.some((f) => f.do_sum) && (
+                        <tfoot className="sticky bottom-0 z-10 bg-[#e4edf7] border-t-2 border-[#8ba9cb] font-bold text-slate-900 shadow-xs">
+                          <tr className="bg-[#e0ecf8]">
+                            <td className="w-8 px-1 py-1 text-center bg-[#c8d8ea] border-r border-[#9bbadb] text-[10px] text-blue-900 font-bold select-none">
+                              Σ
+                            </td>
+                            {spec.item_grid.field_catalog.map((field, idx) => {
+                              const hasSum = !!field.do_sum;
+                              const sumVal = itemTotals[field.fieldname];
+                              const isFirstTextCol = idx === 0 || (idx === 1 && (spec.item_grid!.field_catalog[0].fieldname === 'ZICON' || spec.item_grid!.field_catalog[0].fieldname === 'STATUS'));
+                              return (
+                                <td
+                                  key={field.id || field.fieldname}
+                                  className={`px-2 py-1.5 border-r border-[#9bbadb] text-xs font-mono ${
+                                    hasSum ? 'text-right text-blue-950 bg-[#d5e6f7]' : isFirstTextCol ? 'text-left text-slate-800' : 'text-center text-slate-400'
+                                  }`}
+                                >
+                                  {hasSum ? (
+                                    <span className="font-extrabold text-blue-900">
+                                      {Number(sumVal || 0).toLocaleString()}
+                                    </span>
+                                  ) : isFirstTextCol ? (
+                                    <span className="font-bold text-slate-700">* Total (합계)</span>
+                                  ) : (
+                                    ''
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* ============================================================= */
+              /* STANDARD SINGLE ALV GRID                                      */
+              /* ============================================================= */
+              <div className="flex-1 flex flex-col overflow-auto relative">
+                {/* Real-time Layout Grid Title & Options Indicator */}
+                {spec.layout?.grid_title && (
+                  <div className="bg-[#e4edf7] px-3 py-1.5 border-b border-[#9bbadb] text-xs font-bold text-slate-800 flex items-center justify-between shadow-2xs shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <Table className="w-3.5 h-3.5 text-blue-800" />
+                      <span>{spec.layout.grid_title}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-slate-600 font-normal">
+                      <span>SEL_MODE: {spec.layout.sel_mode || 'A'}</span>
+                      <span>|</span>
+                      <span>줄무늬(Zebra): {spec.layout.zebra ? 'ON' : 'OFF'}</span>
+                      <span>|</span>
+                      <span>총 {displayedRows.length}건</span>
+                    </div>
+                  </div>
+                )}
+
+                <table className="w-full border-collapse text-xs font-sans whitespace-nowrap">
+                  {/* Header Row */}
+                  <thead className="sticky top-0 z-10 bg-[#d8e4f0] border-b border-[#9bbadb] text-slate-900">
+                    <tr>
+                      <th className="w-8 px-1 py-1 border-r border-[#9bbadb] bg-[#c8d8ea] text-center">
+                        <div className="w-3.5 h-3.5 mx-auto border border-slate-600 bg-white flex items-center justify-center">
+                          <span className="text-[9px] text-blue-900 leading-none font-bold">▶</span>
                         </div>
                       </th>
-                    );
-                  })}
-                </tr>
-              </thead>
+                      {spec.field_catalog.map((field) => {
+                        const isKey = field.key;
+                        return (
+                          <th
+                            key={field.id || field.fieldname}
+                            style={{
+                              minWidth: Math.max(field.outputlen * 9, 65),
+                            }}
+                            className={`px-2 py-1.5 border-r border-[#9bbadb] text-left font-semibold text-xs ${
+                              isKey ? 'bg-[#bce0fd] text-slate-900' : 'bg-[#d8e4f0] text-slate-900'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span>{field.coltext}</span>
+                              {sortField === field.fieldname && (
+                                <span className="text-blue-800 font-bold text-[10px]">
+                                  {sortAsc ? '▲' : '▼'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
 
-              {/* Body */}
-              <tbody className="divide-y divide-slate-200">
-                {displayedRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={spec.field_catalog.length + 1} className="py-12 text-center text-slate-400">
-                      {selectedStatusFilter
-                        ? `상태 [${selectedStatusFilter}]에 해당하는 데이터가 없습니다. (툴바 마지막 버튼을 다시 눌러 해제)`
-                        : '데이터가 없습니다.'}
-                    </td>
-                  </tr>
-                ) : (
-                  displayedRows.map((row, rIdx) => {
-                    const isSelected = selectedRowIndex === rIdx;
-                    return (
-                      <tr
-                        key={rIdx}
-                        onClick={() => setSelectedRowIndex(rIdx)}
-                        className={`hover:bg-[#ebf3fb] cursor-pointer ${
-                          isSelected ? 'bg-[#fff5cc]' : 'bg-white'
-                        }`}
-                      >
-                        {/* Row Selection Button */}
-                        <td className="w-8 px-1 py-1 text-center bg-[#d4d0c8] border-r border-[#9bbadb] border-t border-l border-[#f0ede6] border-b border-r border-[#808080]">
-                          <div className="w-2.5 h-2 bg-[#d4d0c8] mx-auto" />
+                  {/* Body */}
+                  <tbody className="divide-y divide-slate-200">
+                    {displayedRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={spec.field_catalog.length + 1} className="py-12 text-center text-slate-400">
+                          데이터가 없습니다. (툴바 신호등 필터 상태를 확인하세요)
                         </td>
+                      </tr>
+                    ) : (
+                      displayedRows.map((row, rIdx) => {
+                        const isSelected = selectedRowIndex === rIdx;
+                        const isZebra = !!spec.layout?.zebra && rIdx % 2 === 1;
+                        return (
+                          <tr
+                            key={rIdx}
+                            onClick={() => setSelectedRowIndex(rIdx)}
+                            className={`hover:bg-[#ebf3fb] cursor-pointer ${
+                              isSelected ? 'bg-[#fff5cc]' : isZebra ? 'bg-[#f4f7fb]' : 'bg-white'
+                            }`}
+                          >
+                            <td className="w-8 px-1 py-1 text-center bg-[#d4d0c8] border-r border-[#9bbadb] border-t border-l border-[#f0ede6] border-b border-[#808080] font-mono text-[10px] text-slate-700 font-semibold select-none">
+                              {spec.layout?.show_row_numbers ? (
+                                rIdx + 1
+                              ) : (
+                                <div className="w-2.5 h-2 bg-[#d4d0c8] mx-auto" />
+                              )}
+                            </td>
 
-                        {/* Cells */}
-                        {spec.field_catalog.map((field) => {
-                          const val = row[field.fieldname];
-                          const isKey = field.key;
-                          const isStatusCol =
-                            field.fieldname === 'STATUS' ||
-                            field.fieldname === 'LIGHTS' ||
-                            field.coltext === '상태' ||
-                            field.icon_type === 'DOC';
+                            {spec.field_catalog.map((field) => {
+                              const val = row[field.fieldname];
+                              const isKey = field.key;
+                              const isStatusCol =
+                                field.fieldname === 'ZICON' ||
+                                field.fieldname === 'STATUS' ||
+                                field.fieldname === 'LIGHTS' ||
+                                field.coltext === '상태' ||
+                                field.icon_type === 'DOC';
 
-                          const alignClass =
-                            field.just === 'R'
-                              ? 'text-right'
-                              : field.just === 'C'
-                              ? 'text-center'
-                              : 'text-left';
+                              const alignClass =
+                                field.just === 'R'
+                                  ? 'text-right'
+                                  : field.just === 'C'
+                                  ? 'text-center'
+                                  : 'text-left';
 
-                          // Key column background matching screenshot pale sky blue (#bce0fd)
-                          const cellBg = isKey
-                            ? isSelected
-                              ? 'bg-[#ffe88a]'
-                              : 'bg-[#bce0fd]'
-                            : isSelected
-                            ? 'bg-[#fff5cc]'
-                            : 'bg-white';
+                              const cellStyle = getSapAlvCellStyle(
+                                field.emphasize,
+                                isKey,
+                                isSelected,
+                                isZebra
+                              );
 
+                              return (
+                                <td
+                                  key={field.id || field.fieldname}
+                                  onClick={(e) => {
+                                    if (isStatusCol) {
+                                      e.stopPropagation();
+                                      handleCycleStatus(rIdx, field.fieldname);
+                                    }
+                                  }}
+                                  title={
+                                    isStatusCol
+                                      ? '클릭 시 Sta. 상태가 변경되며, 툴바 필터가 자동 갱신됩니다.'
+                                      : field.emphasize
+                                      ? `SAP 컬러: ${field.emphasize}`
+                                      : undefined
+                                  }
+                                  className={`px-2 py-1 border-r border-[#d8d8d8] text-xs font-mono ${alignClass} ${cellStyle.bg} ${cellStyle.text} ${
+                                    isStatusCol ? 'cursor-pointer hover:brightness-95' : ''
+                                  }`}
+                                >
+                                  {field.icon_type === 'DOC' || val === 'DOC' ? (
+                                    <div className="flex items-center justify-center">
+                                      <svg viewBox="0 0 24 24" className="w-4 h-4 text-slate-700 fill-white stroke-slate-700 stroke-1 drop-shadow-2xs">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                        <polyline points="14 2 14 8 20 8" />
+                                      </svg>
+                                    </div>
+                                  ) : field.icon_type === 'FOLDER' || val === 'FOLDER' ? (
+                                    <div className="flex items-center justify-center">
+                                      <svg viewBox="0 0 24 24" className="w-4 h-4 fill-[#f6c342] stroke-[#c98e16] stroke-1 drop-shadow-2xs">
+                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                                      </svg>
+                                    </div>
+                                  ) : field.fieldname === 'ZICON' || field.fieldname === 'LIGHTS' || field.fieldname === 'STATUS' || val === '1' || val === '2' || val === '3' ? (
+                                    <div className="flex items-center justify-center">
+                                      {val === '1' || val === 1 ? (
+                                        <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border border-emerald-700 shadow-xs inline-block" />
+                                      ) : val === '2' || val === 2 ? (
+                                        <span className="w-3.5 h-3.5 rounded-full bg-amber-400 border border-amber-600 shadow-xs inline-block" />
+                                      ) : (
+                                        <span className="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-700 shadow-xs inline-block" />
+                                      )}
+                                    </div>
+                                  ) : field.checkbox ? (
+                                    <input
+                                      type="checkbox"
+                                      checked={!!val}
+                                      onChange={() => handleCheckboxToggle(rIdx)}
+                                      className="accent-blue-600"
+                                    />
+                                  ) : field.hotspot ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setDrilldownInfo({
+                                          tcode: field.drilldown_tcode || 'KAH3',
+                                          fieldValue: String(val),
+                                          fieldName: field.fieldname,
+                                          fieldLabel: field.coltext,
+                                          rowRecord: row,
+                                        })
+                                      }
+                                      className="text-blue-700 hover:text-blue-900 underline font-semibold cursor-pointer"
+                                    >
+                                      {val !== undefined && val !== null ? String(val) : ''}
+                                    </button>
+                                  ) : field.edit ? (
+                                    <input
+                                      type="text"
+                                      value={val !== undefined && val !== null ? String(val) : ''}
+                                      onChange={(e) => handleCellEdit(rIdx, field.fieldname, e.target.value)}
+                                      className="w-full bg-yellow-50 border border-yellow-300 px-1 text-xs"
+                                    />
+                                  ) : (
+                                    <span>{val !== undefined && val !== null ? String(val) : ''}</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+
+                  {/* Single ALV Total Row (DO_SUM) */}
+                  {spec.field_catalog.some((f) => f.do_sum) && (
+                    <tfoot className="sticky bottom-0 z-10 bg-[#e4edf7] border-t-2 border-[#8ba9cb] font-bold text-slate-900 shadow-xs">
+                      <tr className="bg-[#e0ecf8]">
+                        <td className="w-8 px-1 py-1 text-center bg-[#c8d8ea] border-r border-[#9bbadb] text-[10px] text-blue-900 font-bold select-none">
+                          Σ
+                        </td>
+                        {spec.field_catalog.map((field, idx) => {
+                          const hasSum = !!field.do_sum;
+                          const sumVal = totals[field.fieldname];
+                          const isFirstTextCol = idx === 0 || (idx === 1 && (spec.field_catalog[0].fieldname === 'ZICON' || spec.field_catalog[0].fieldname === 'STATUS'));
                           return (
                             <td
                               key={field.id || field.fieldname}
-                              onClick={(e) => {
-                                if (isStatusCol) {
-                                  e.stopPropagation();
-                                  handleCycleStatus(rIdx, field.fieldname);
-                                }
-                              }}
-                              title={isStatusCol ? '클릭 시 Sta. 상태가 변경되며, 툴바 마지막 버튼이 자동 갱신됩니다.' : undefined}
-                              className={`px-2 py-1 border-r border-[#d8d8d8] text-xs font-mono ${alignClass} ${cellBg} ${
-                                isStatusCol ? 'cursor-pointer hover:bg-amber-100/60' : ''
+                              className={`px-2 py-1.5 border-r border-[#9bbadb] text-xs font-mono ${
+                                hasSum ? 'text-right text-blue-950 bg-[#d5e6f7]' : isFirstTextCol ? 'text-left text-slate-800' : 'text-center text-slate-400'
                               }`}
                             >
-                              {/* 1. White Document Icon with folded corner (matching screenshot 상태 column) */}
-                              {field.icon_type === 'DOC' || val === 'DOC' ? (
-                                <div className="flex items-center justify-center">
-                                  <svg viewBox="0 0 24 24" className="w-4 h-4 text-slate-700 fill-white stroke-slate-700 stroke-1 drop-shadow-2xs">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                    <polyline points="14 2 14 8 20 8" />
-                                  </svg>
-                                </div>
-                              ) : /* 2. Yellow Folder Icon (matching screenshot 노드 column) */
-                              field.icon_type === 'FOLDER' || val === 'FOLDER' ? (
-                                <div className="flex items-center justify-center">
-                                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-[#f6c342] stroke-[#c98e16] stroke-1 drop-shadow-2xs">
-                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                                  </svg>
-                                </div>
-                              ) : /* 3. Traffic Light column */
-                              field.fieldname === 'LIGHTS' || val === '1' || val === '2' || val === '3' ? (
-                                <div className="flex items-center justify-center">
-                                  {val === '1' || val === 1 ? (
-                                    <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border border-emerald-700 shadow-xs inline-block" />
-                                  ) : val === '2' || val === 2 ? (
-                                    <span className="w-3.5 h-3.5 rounded-full bg-amber-400 border border-amber-600 shadow-xs inline-block" />
-                                  ) : (
-                                    <span className="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-700 shadow-xs inline-block" />
-                                  )}
-                                </div>
-                              ) : field.checkbox ? (
-                                <input
-                                  type="checkbox"
-                                  checked={!!val}
-                                  onChange={() => handleCheckboxToggle(rIdx)}
-                                  className="accent-blue-600"
-                                />
-                              ) : field.hotspot ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setDrilldownInfo({
-                                      tcode: field.drilldown_tcode || 'KAH3',
-                                      fieldValue: String(val),
-                                      fieldName: field.fieldname,
-                                      fieldLabel: field.coltext,
-                                      rowRecord: row,
-                                    })
-                                  }
-                                  className="text-blue-700 hover:text-blue-900 underline font-semibold cursor-pointer"
-                                >
-                                  {val !== undefined && val !== null ? String(val) : ''}
-                                </button>
-                              ) : field.edit ? (
-                                <input
-                                  type="text"
-                                  value={val !== undefined && val !== null ? String(val) : ''}
-                                  onChange={(e) => handleCellEdit(rIdx, field.fieldname, e.target.value)}
-                                  className="w-full bg-yellow-50 border border-yellow-300 px-1 text-xs"
-                                />
+                              {hasSum ? (
+                                <span className="font-extrabold text-blue-900">
+                                  {Number(sumVal || 0).toLocaleString()}
+                                </span>
+                              ) : isFirstTextCol ? (
+                                <span className="font-bold text-slate-700">* Total (합계)</span>
                               ) : (
-                                <span>{val !== undefined && val !== null ? String(val) : ''}</span>
+                                ''
                               )}
                             </td>
                           );
                         })}
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
           </div>
         )}
 

@@ -32,7 +32,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             EverySpec with Josh
           </div>
           <div className="text-[10px] text-blue-300 font-medium">
-            ABAP 사양서 설계 & CL_GUI_ALV_GRID 시뮬레이터
+            ABAP Spec Design & CL_GUI_ALV_GRID Simulator
           </div>
         </div>
       </div>
@@ -110,7 +110,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           }}
           className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
         >
-          <option value="" disabled>사양서 템플릿 선택</option>
+          <option value="" disabled>Select Specification Template</option>
           {SAMPLE_SPECS.map(s => (
             <option key={s.id} value={s.id}>
               [{s.module}] {s.program_id} - {s.title}
