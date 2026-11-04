@@ -10,6 +10,12 @@ import {
   DollarSign,
   CheckSquare,
   Key,
+  GripVertical,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  ListOrdered,
+  Table as TableIcon,
+  Check,
 } from 'lucide-react';
 import { AlvField, ProgramSpec, SapDataType, TextAlignment } from '../types/sap';
 import { SAP_DICTIONARY_PRESETS, presetToAlvField } from '../data/sapDictionary';
@@ -17,10 +23,106 @@ import { SAP_DICTIONARY_PRESETS, presetToAlvField } from '../data/sapDictionary'
 interface FieldCatalogEditorProps {
   spec: ProgramSpec;
   onChange: (updatedCatalog: AlvField[], updatedMockRows?: Record<string, any>[]) => void;
+  onReorder?: (fromIndex: number, toIndex: number) => void;
 }
 
-export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, onChange }) => {
+export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
+  spec,
+  onChange,
+  onReorder,
+}) => {
   const [selectedPresetIndex, setSelectedPresetIndex] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'table' | 'sortable_list'>('table');
+  const [reorderNotice, setReorderNotice] = useState<string | null>(null);
+
+  // Drag and Drop States
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [dragPosition, setDragPosition] = useState<'top' | 'bottom' | null>(null);
+
+  // Reorder field catalog and automatically update col_pos for each field
+  const handleReorder = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || toIndex < 0 || toIndex >= spec.field_catalog.length) return;
+
+    if (onReorder) {
+      onReorder(fromIndex, toIndex);
+    } else {
+      const list = [...spec.field_catalog];
+      const [movedItem] = list.splice(fromIndex, 1);
+      list.splice(toIndex, 0, movedItem);
+
+      // Automatically update col_pos for each field accordingly (1-indexed sequential)
+      const renumbered = list.map((field, idx) => ({
+        ...field,
+        col_pos: idx + 1,
+      }));
+
+      onChange(renumbered);
+    }
+
+    const fieldName = spec.field_catalog[fromIndex]?.fieldname || 'Field';
+    setReorderNotice(`Field sequence for '${fieldName}' updated. (COL_POS automatically re-indexed)`);
+    setTimeout(() => setReorderNotice(null), 3000);
+  };
+
+  // Drag and Drop Event Handlers
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedIndex === null || draggedIndex === index) {
+      setDragOverIndex(null);
+      setDragPosition(null);
+      return;
+    }
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos: 'top' | 'bottom' = e.clientY < midY ? 'top' : 'bottom';
+
+    setDragOverIndex(index);
+    setDragPosition(pos);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only reset if leaving current target
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      setDragPosition(null);
+      return;
+    }
+
+    let finalTarget = targetIndex;
+    if (dragPosition === 'bottom' && draggedIndex > targetIndex) {
+      finalTarget = targetIndex + 1;
+    } else if (dragPosition === 'top' && draggedIndex < targetIndex) {
+      finalTarget = targetIndex - 1;
+    }
+
+    const clampedTarget = Math.max(0, Math.min(spec.field_catalog.length - 1, finalTarget));
+    handleReorder(draggedIndex, clampedTarget);
+
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+    setDragPosition(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+    setDragPosition(null);
+  };
 
   // Add custom new blank field with guaranteed stable ID
   const handleAddNewField = () => {
@@ -51,7 +153,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
     if (!preset) return;
 
     // Check if field already exists
-    const exists = spec.field_catalog.some(f => f.fieldname === preset.field);
+    const exists = spec.field_catalog.some((f) => f.fieldname === preset.field);
     const nextPos = spec.field_catalog.length + 1;
     const newField = presetToAlvField(preset, nextPos);
     if (exists) {
@@ -71,20 +173,6 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
     onChange(nextCatalog);
   };
 
-  // Move Up / Down
-  const handleMove = (index: number, direction: 'up' | 'down') => {
-    const targetIdx = direction === 'up' ? index - 1 : index + 1;
-    if (targetIdx < 0 || targetIdx >= spec.field_catalog.length) return;
-
-    const list = [...spec.field_catalog];
-    const temp = list[index];
-    list[index] = list[targetIdx];
-    list[targetIdx] = temp;
-
-    const renumbered = list.map((f, i) => ({ ...f, col_pos: i + 1 }));
-    onChange(renumbered);
-  };
-
   // Update single field property with stable in-place mutation
   const handleUpdateField = (index: number, patch: Partial<AlvField>) => {
     const nextCatalog = spec.field_catalog.map((f, i) => (i === index ? { ...f, ...patch } : f));
@@ -98,38 +186,36 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
 
     for (let i = 0; i < count; i++) {
       const row: Record<string, any> = {};
-      spec.field_catalog.forEach(f => {
-        const fname = f.fieldname;
-        if (f.icon_type === 'DOC' || fname === 'STATUS') {
-          row[fname] = i === 0 ? 'DOC' : '';
-        } else if (f.icon_type === 'FOLDER' || fname === 'NODE') {
-          row[fname] = 'FOLDER';
-        } else if (fname === 'SET_NAME') {
-          row[fname] = i === 0 ? 'ADMVVALL' : 'ADMVV500';
-        } else if (fname === 'TEXT') {
-          row[fname] = i === 0 ? '관리' : i === 1 ? '관리_인건비' : '';
-        } else if (fname === 'LINE') {
-          row[fname] = i === 1 ? 1 : 0;
-        } else if (fname === 'PARENT_SET') {
-          row[fname] = i === 1 ? 'ADMVVALL' : '';
-        } else if (fname === 'START_VAL') {
-          row[fname] = i >= 2 ? 'AAA' : '';
-        } else if (fname === 'END_VAL') {
-          row[fname] = i === 2 ? '0063051099' : i === 3 ? '0063052099' : i === 4 ? '0082422500' : '';
-        } else if (fname === 'CHECKBOX') {
-          row[fname] = false;
-        } else if (fname === 'LIGHTS') {
-          row[fname] = String((i % 3) + 1);
-        } else if (f.datatype === 'CURR') {
-          row[fname] = (i + 1) * 12500000;
-        } else if (f.datatype === 'DEC' || f.datatype === 'INT4' || f.datatype === 'NUMC') {
-          row[fname] = (i + 1) * 10;
+
+      spec.field_catalog.forEach((f) => {
+        if (f.fieldname === 'ZICON' || f.fieldname === 'STATUS' || f.fieldname === 'LIGHTS') {
+          row[f.fieldname] = String((i % 3) + 1);
+        } else if (f.fieldname === 'CHECKBOX') {
+          row[f.fieldname] = i === 1 ? 'X' : ' ';
+        } else if (f.datatype === 'CURR' || f.datatype === 'DEC') {
+          row[f.fieldname] = (i + 1) * 1250000;
         } else if (f.datatype === 'DATS') {
-          row[fname] = `2026.10.${String(10 + i * 3).padStart(2, '0')}`;
+          row[f.fieldname] = `2026.10.${String(i + 10).padStart(2, '0')}`;
+        } else if (f.datatype === 'TIMS') {
+          row[f.fieldname] = `09:30:${String(i * 12).padStart(2, '0')}`;
+        } else if (f.datatype === 'UNIT') {
+          row[f.fieldname] = 'EA';
+        } else if (f.fieldname.includes('VBELN') || f.fieldname.includes('DOC_NO')) {
+          row[f.fieldname] = `DOC-${String(2026001 + i)}`;
+        } else if (f.fieldname.includes('KUNNR') || f.fieldname.includes('PARTNER')) {
+          const partners = [
+            '삼성전자 화성사업장',
+            '현대자동차 남양연구소',
+            'LG에너지솔루션 오창',
+            'SK하이닉스 이천공장',
+            '포스코 광양제철소',
+          ];
+          row[f.fieldname] = partners[i % partners.length];
         } else {
-          row[fname] = `${f.coltext}_${i + 1}`;
+          row[f.fieldname] = `VAL_${f.fieldname}_${i + 1}`;
         }
       });
+
       newRows.push(row);
     }
 
@@ -137,19 +223,19 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
   };
 
   return (
-    <div className="space-y-4">
-      {/* Top Action Bar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap bg-slate-50 p-3 rounded-lg border border-slate-200">
-        <div className="flex items-center gap-2">
-          {/* SAP Standard Dictionary Preset Selector */}
-          <div className="flex items-center gap-1.5">
-            <Database className="w-4 h-4 text-blue-700 shrink-0" />
+    <div className="space-y-3 font-sans">
+      {/* 1. Top Controls Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200 shadow-2xs">
+        {/* Left: Add Preset & Manual */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-md p-1 shadow-2xs">
+            <Database className="w-3.5 h-3.5 text-blue-700 ml-1 shrink-0" />
             <select
               value={selectedPresetIndex}
               onChange={(e) => setSelectedPresetIndex(e.target.value)}
-              className="text-xs bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 font-sans"
+              className="text-xs bg-transparent text-slate-800 focus:outline-none font-sans cursor-pointer"
             >
-              <option value="">SAP 표준 데이터사전 필드 선택...</option>
+              <option value="">Select SAP Standard Dictionary Preset...</option>
               {SAP_DICTIONARY_PRESETS.map((p, idx) => (
                 <option key={`${p.table}-${p.field}-${idx}`} value={idx}>
                   [{p.module}] {p.table}-{p.field}: {p.label} ({p.type})
@@ -157,319 +243,572 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({ spec, on
               ))}
             </select>
             <button
+              type="button"
               onClick={handleAddPreset}
               disabled={!selectedPresetIndex}
-              className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-40 rounded transition-colors flex items-center gap-1 shrink-0"
+              className="px-2.5 py-1 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-40 rounded transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              필드 추가
+              <span>Add Preset</span>
             </button>
           </div>
 
           <button
+            type="button"
             onClick={handleAddNewField}
-            className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded transition-colors flex items-center gap-1 shrink-0"
+            className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md transition-colors flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 text-slate-500" />
-            직접 항목 추가
+            <span>Add Field</span>
           </button>
         </div>
 
-        <button
-          onClick={handleGenerateMockData}
-          title="현재 필드 정의에 맞춰 실시간 ALV 목업 데이터를 자동 생성합니다"
-          className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded transition-colors flex items-center gap-1.5 shrink-0"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-          목업 테스트 데이터 자동 생성
-        </button>
-      </div>
+        {/* Right: View Mode Toggle & Mock Data */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* View Mode Toggle: Table View vs Sortable List View */}
+          <div className="flex items-center bg-white border border-slate-300 rounded-lg p-0.5 shadow-2xs text-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                viewMode === 'table'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Table Grid View (Drag & drop support)"
+            >
+              <TableIcon className="w-3.5 h-3.5" />
+              <span>Table View</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('sortable_list')}
+              className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                viewMode === 'sortable_list'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Sortable Card List (Drag & drop and quick shift)"
+            >
+              <ListOrdered className="w-3.5 h-3.5" />
+              <span>Sortable List Mode</span>
+            </button>
+          </div>
 
-      {/* Field Catalog Table */}
-      <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
-              <tr>
-                <th className="py-2.5 px-2 text-center w-12">순서</th>
-                <th className="py-2.5 px-2 min-w-32">필드명 (FIELDNAME)</th>
-                <th className="py-2.5 px-2 min-w-36">컬럼명 (COLTEXT)</th>
-                <th className="py-2.5 px-2 w-24">타입</th>
-                <th className="py-2.5 px-2 w-16 text-center">길이</th>
-                <th className="py-2.5 px-2 w-16 text-center">Just</th>
-                <th className="py-2.5 px-2 w-16 text-center" title="SAP ALV 색상코드 (예: C300, C100, C500, C600)">Color</th>
-                <th className="py-2.5 px-2 text-center w-12" title="Key Field (고정 열)">
-                  <span className="flex items-center justify-center gap-0.5 text-blue-700">
-                    <Key className="w-3 h-3" /> Key
-                  </span>
-                </th>
-                <th className="py-2.5 px-2 text-center w-14" title="Hotspot (클릭 시 T-Code 이동)">
-                  <span className="flex items-center justify-center gap-0.5 text-indigo-700">
-                    <Link className="w-3 h-3" /> Hotspot
-                  </span>
-                </th>
-                <th className="py-2.5 px-2 text-center w-12" title="Checkbox 형태">
-                  <span className="flex items-center justify-center gap-0.5 text-slate-700">
-                    <CheckSquare className="w-3 h-3" /> Chk
-                  </span>
-                </th>
-                <th className="py-2.5 px-2 text-center w-12" title="Edit (그리드 셀 직접 편집)">
-                  Edit
-                </th>
-                <th className="py-2.5 px-2 text-center w-12" title="DO_SUM (하단 합계 산출 - CHAR 비활성화)">
-                  <span className="flex items-center justify-center gap-0.5 text-emerald-700">
-                    <DollarSign className="w-3 h-3" /> Σ
-                  </span>
-                </th>
-                <th className="py-2.5 px-2 w-24">Ref.Table</th>
-                <th className="py-2.5 px-2 w-24">Ref.Field</th>
-                <th className="py-2.5 px-2 w-24">T-Code</th>
-                <th className="py-2.5 px-2 text-center w-20">관리</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-              {spec.field_catalog.length === 0 ? (
-                <tr>
-                  <td colSpan={16} className="py-8 text-center text-slate-400 font-sans">
-                    등록된 필드가 없습니다. 위의 [SAP 표준 데이터사전 필드]를 선택하여 추가하세요.
-                  </td>
-                </tr>
-              ) : (
-                spec.field_catalog.map((field, idx) => {
-                  // Stable key using field.id (fallback to index if missing)
-                  const stableKey = field.id || `fld-pos-${idx}`;
-                  return (
-                    <tr key={stableKey} className="hover:bg-slate-50 transition-colors">
-                      {/* Position */}
-                      <td className="py-2 px-2 text-center text-slate-500 font-semibold">
-                        {field.col_pos}
-                      </td>
-
-                      {/* Fieldname - Stable editing without unmounting */}
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="text"
-                          value={field.fieldname}
-                          onChange={(e) =>
-                            handleUpdateField(idx, { fieldname: e.target.value })
-                          }
-                          onBlur={(e) =>
-                            handleUpdateField(idx, { fieldname: e.target.value.trim().toUpperCase() })
-                          }
-                          className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500 uppercase font-bold text-slate-800"
-                        />
-                      </td>
-
-                      {/* Coltext - Stable editing for Korean / English */}
-                      <td className="py-1.5 px-2 font-sans">
-                        <input
-                          type="text"
-                          value={field.coltext}
-                          onChange={(e) => handleUpdateField(idx, { coltext: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500 text-slate-800 font-medium"
-                        />
-                      </td>
-
-                      {/* Data Type */}
-                      <td className="py-1.5 px-2">
-                        <select
-                          value={field.datatype}
-                          onChange={(e) => {
-                            const newType = e.target.value as SapDataType;
-                            handleUpdateField(idx, {
-                              datatype: newType,
-                              ...(newType === 'CHAR' ? { do_sum: false } : {}),
-                            });
-                          }}
-                          className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 text-slate-700"
-                        >
-                          <option value="CHAR">CHAR</option>
-                          <option value="NUMC">NUMC</option>
-                          <option value="DATS">DATS</option>
-                          <option value="TIMS">TIMS</option>
-                          <option value="CURR">CURR</option>
-                          <option value="DEC">DEC</option>
-                          <option value="UNIT">UNIT</option>
-                          <option value="INT4">INT4</option>
-                        </select>
-                      </td>
-
-                      {/* Output length */}
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="number"
-                          value={field.outputlen}
-                          onChange={(e) =>
-                            handleUpdateField(idx, { outputlen: Number(e.target.value) || 10 })
-                          }
-                          className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 text-center"
-                        />
-                      </td>
-
-                      {/* Justification (Just) */}
-                      <td className="py-1.5 px-2">
-                        <select
-                          value={field.just}
-                          onChange={(e) =>
-                            handleUpdateField(idx, { just: e.target.value as TextAlignment })
-                          }
-                          className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 text-center font-bold"
-                        >
-                          <option value="L">L</option>
-                          <option value="C">C</option>
-                          <option value="R">R</option>
-                        </select>
-                      </td>
-
-                      {/* Color (SAP ALV emphasize code e.g. C300, C100) */}
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="text"
-                          value={field.emphasize || ''}
-                          onChange={(e) =>
-                            handleUpdateField(idx, { emphasize: e.target.value.toUpperCase() })
-                          }
-                          placeholder="C300"
-                          title="SAP ALV 색상코드 (예: C300, C310, C100, C500, C600)"
-                          className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-center font-bold text-[10px]"
-                        />
-                      </td>
-
-                      {/* Key */}
-                      <td className="py-1.5 px-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={field.key}
-                          onChange={(e) => handleUpdateField(idx, { key: e.target.checked })}
-                          className="w-4 h-4 accent-blue-600 rounded cursor-pointer"
-                        />
-                      </td>
-
-                      {/* Hotspot */}
-                      <td className="py-1.5 px-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={field.hotspot}
-                          onChange={(e) => handleUpdateField(idx, { hotspot: e.target.checked })}
-                          className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
-                        />
-                      </td>
-
-                      {/* Checkbox */}
-                      <td className="py-1.5 px-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={field.checkbox}
-                          onChange={(e) => handleUpdateField(idx, { checkbox: e.target.checked })}
-                          className="w-4 h-4 accent-slate-700 rounded cursor-pointer"
-                        />
-                      </td>
-
-                      {/* Edit */}
-                      <td className="py-1.5 px-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={field.edit}
-                          onChange={(e) => handleUpdateField(idx, { edit: e.target.checked })}
-                          className="w-4 h-4 accent-amber-600 rounded cursor-pointer"
-                        />
-                      </td>
-
-                      {/* Do Sum - disabled if CHAR */}
-                      <td className="py-1.5 px-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={field.datatype === 'CHAR' ? false : field.do_sum}
-                          disabled={field.datatype === 'CHAR'}
-                          title={
-                            field.datatype === 'CHAR'
-                              ? 'CHAR(문자형) 필드는 합계(DO_SUM)를 지정할 수 없습니다.'
-                              : '하단 합계(Σ) 계산'
-                          }
-                          onChange={(e) => handleUpdateField(idx, { do_sum: e.target.checked })}
-                          className={`w-4 h-4 rounded ${
-                            field.datatype === 'CHAR'
-                              ? 'opacity-25 cursor-not-allowed bg-slate-200'
-                              : 'accent-emerald-600 cursor-pointer'
-                          }`}
-                        />
-                      </td>
-
-                      {/* Ref Table */}
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="text"
-                          value={field.ref_table || ''}
-                          onChange={(e) =>
-                            handleUpdateField(idx, { ref_table: e.target.value.toUpperCase() })
-                          }
-                          placeholder="VBAK"
-                          className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
-                        />
-                      </td>
-
-                      {/* Ref Field */}
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="text"
-                          value={field.ref_field || ''}
-                          onChange={(e) =>
-                            handleUpdateField(idx, { ref_field: e.target.value.toUpperCase() })
-                          }
-                          placeholder="VBELN"
-                          className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
-                        />
-                      </td>
-
-                      {/* Drilldown T-Code */}
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="text"
-                          value={field.drilldown_tcode || ''}
-                          onChange={(e) =>
-                            handleUpdateField(idx, { drilldown_tcode: e.target.value.toUpperCase() })
-                          }
-                          placeholder="VA03"
-                          className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
-                        />
-                      </td>
-
-                      {/* Actions */}
-                      <td className="py-1.5 px-2 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            onClick={() => handleMove(idx, 'up')}
-                            disabled={idx === 0}
-                            title="위로 이동"
-                            className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20"
-                          >
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleMove(idx, 'down')}
-                            disabled={idx === spec.field_catalog.length - 1}
-                            title="아래로 이동"
-                            className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20"
-                          >
-                            <ArrowDown className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteField(idx)}
-                            title="필드 삭제"
-                            className="p-1 text-slate-400 hover:text-red-600"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          <button
+            type="button"
+            onClick={handleGenerateMockData}
+            title="Automatically generate realistic mock data rows for the ALV grid"
+            className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Generate Mock Data</span>
+          </button>
         </div>
       </div>
+
+      {/* Helpful Drag-and-Drop Guide Banner */}
+      <div className="px-3 py-1.5 bg-blue-50/70 border border-blue-200 rounded-md text-[11px] text-blue-900 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-1.5">
+          <GripVertical className="w-3.5 h-3.5 text-blue-600" />
+          <span className="font-bold">Drag & Drop (Reorder):</span>
+          <span>
+            Drag the <strong>grip handle (⋮⋮)</strong> up or down to reorder fields.{' '}
+            <strong>`COL_POS` is automatically re-indexed from 1.</strong>
+          </span>
+        </div>
+        <span className="font-mono text-[10px] text-blue-700 bg-white px-2 py-0.5 rounded border border-blue-200">
+          Total {spec.field_catalog.length} fields
+        </span>
+      </div>
+
+      {/* Reorder Success Feedback Toast */}
+      {reorderNotice && (
+        <div className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-md font-medium flex items-center gap-2 shadow-sm animate-in fade-in duration-150">
+          <Check className="w-3.5 h-3.5" />
+          <span>{reorderNotice}</span>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* VIEW MODE 1: SORTABLE CARD LIST (Reorder Mode)                            */}
+      {/* ========================================================================= */}
+      {viewMode === 'sortable_list' && (
+        <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-2 shadow-xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-700 pb-2 border-b border-slate-200">
+            <span>Field Order Card List (Drag & Drop or Click to Reorder)</span>
+            <span className="text-[11px] text-slate-500 font-normal">
+              Drag cards or use buttons to automatically re-index COL_POS.
+            </span>
+          </div>
+
+          <div className="space-y-1.5 max-h-[520px] overflow-y-auto pr-1">
+            {spec.field_catalog.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                No fields registered. Please add fields above.
+              </div>
+            ) : (
+              spec.field_catalog.map((field, idx) => {
+                const isDragging = draggedIndex === idx;
+                const isOver = dragOverIndex === idx;
+
+                return (
+                  <div
+                    key={field.id || field.fieldname}
+                    draggable={true}
+                    onDragStart={(e) => handleDragStart(e, idx)}
+                    onDragOver={(e) => handleDragOver(e, idx)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, idx)}
+                    onDragEnd={handleDragEnd}
+                    className={`flex items-center justify-between p-2.5 rounded-lg border transition-all cursor-move select-none ${
+                      isDragging
+                        ? 'opacity-40 bg-blue-50 border-2 border-dashed border-blue-500 shadow-md'
+                        : isOver
+                        ? 'bg-blue-50/80 border-blue-500 ring-2 ring-blue-400 ring-inset shadow-md'
+                        : 'bg-white hover:bg-slate-50 border-slate-200 shadow-2xs'
+                    }`}
+                  >
+                    {/* Left: Drag Grip Handle & Sequence Info */}
+                    <div className="flex items-center gap-3">
+                      <div className="p-1 text-slate-400 hover:text-slate-800 cursor-grab active:cursor-grabbing">
+                        <GripVertical className="w-4 h-4" />
+                      </div>
+
+                      {/* COL_POS Badge */}
+                      <span className="w-7 h-7 rounded-md bg-blue-100 text-blue-900 font-mono font-bold text-xs flex items-center justify-center border border-blue-200 shadow-2xs">
+                        {field.col_pos}
+                      </span>
+
+                      {/* Field Identity */}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-slate-900 text-xs">
+                            {field.fieldname}
+                          </span>
+                          <span className="text-slate-700 text-xs font-semibold">
+                            {field.coltext}
+                          </span>
+                          {field.key && (
+                            <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded">
+                              KEY
+                            </span>
+                          )}
+                          {field.hotspot && (
+                            <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">
+                              HOTSPOT
+                            </span>
+                          )}
+                          {field.do_sum && (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
+                              SUM (Σ)
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
+                          <span>
+                            타입: {field.datatype}({field.outputlen})
+                          </span>
+                          <span>|</span>
+                          <span>정렬: {field.just}</span>
+                          {field.ref_table && (
+                            <>
+                              <span>|</span>
+                              <span>
+                                참조: {field.ref_table}-{field.ref_field}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Quick Reorder Buttons */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleReorder(idx, 0)}
+                        disabled={idx === 0}
+                        title="최상단으로 이동 (Move to Top)"
+                        className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
+                      >
+                        <ArrowUpToLine className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReorder(idx, idx - 1)}
+                        disabled={idx === 0}
+                        title="한 칸 위로 이동 (Move Up)"
+                        className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReorder(idx, idx + 1)}
+                        disabled={idx === spec.field_catalog.length - 1}
+                        title="한 칸 아래로 이동 (Move Down)"
+                        className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReorder(idx, spec.field_catalog.length - 1)}
+                        disabled={idx === spec.field_catalog.length - 1}
+                        title="최하단으로 이동 (Move to Bottom)"
+                        className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
+                      >
+                        <ArrowDownToLine className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* VIEW MODE 2: FULL TABLE WITH DRAG AND DROP HANDLES                         */}
+      {/* ========================================================================= */}
+      {viewMode === 'table' && (
+        <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
+                <tr>
+                  <th className="py-2.5 px-2 text-center w-8" title="Drag to reorder sequence">
+                    ↕
+                  </th>
+                  <th className="py-2.5 px-2 text-center w-12">POS</th>
+                  <th className="py-2.5 px-2 min-w-32">FIELDNAME</th>
+                  <th className="py-2.5 px-2 min-w-36">COLTEXT</th>
+                  <th className="py-2.5 px-2 w-24">Type</th>
+                  <th className="py-2.5 px-2 w-16 text-center">Length</th>
+                  <th className="py-2.5 px-2 w-16 text-center">Just</th>
+                  <th
+                    className="py-2.5 px-2 w-16 text-center"
+                    title="SAP ALV Color Code (e.g., C300, C100, C500, C600)"
+                  >
+                    Color
+                  </th>
+                  <th className="py-2.5 px-2 text-center w-12" title="Key Field (Fixed column)">
+                    <span className="flex items-center justify-center gap-0.5 text-blue-700">
+                      <Key className="w-3 h-3" /> Key
+                    </span>
+                  </th>
+                  <th className="py-2.5 px-2 text-center w-14" title="Hotspot (Clickable link / drilldown)">
+                    <span className="flex items-center justify-center gap-0.5 text-indigo-700">
+                      <Link className="w-3 h-3" /> Hotspot
+                    </span>
+                  </th>
+                  <th className="py-2.5 px-2 text-center w-12" title="Checkbox style">
+                    <span className="flex items-center justify-center gap-0.5 text-slate-700">
+                      <CheckSquare className="w-3 h-3" /> Chk
+                    </span>
+                  </th>
+                  <th className="py-2.5 px-2 text-center w-12" title="Edit (Direct in-grid cell editing)">
+                    Edit
+                  </th>
+                  <th
+                    className="py-2.5 px-2 text-center w-12"
+                    title="DO_SUM (Bottom total calculation - disabled for CHAR)"
+                  >
+                    <span className="flex items-center justify-center gap-0.5 text-emerald-700">
+                      <DollarSign className="w-3 h-3" /> Σ
+                    </span>
+                  </th>
+                  <th className="py-2.5 px-2 w-24">Ref.Table</th>
+                  <th className="py-2.5 px-2 w-24">Ref.Field</th>
+                  <th className="py-2.5 px-2 w-24">T-Code</th>
+                  <th className="py-2.5 px-2 text-center w-24">Manage / Order</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                {spec.field_catalog.length === 0 ? (
+                  <tr>
+                    <td colSpan={17} className="py-8 text-center text-slate-400 font-sans">
+                      No fields configured. Select from SAP standard presets above or add fields directly.
+                    </td>
+                  </tr>
+                ) : (
+                  spec.field_catalog.map((field, idx) => {
+                    const stableKey = field.id || `fld-pos-${idx}`;
+                    const isDragging = draggedIndex === idx;
+                    const isOver = dragOverIndex === idx;
+
+                    return (
+                      <tr
+                        key={stableKey}
+                        draggable={true}
+                        onDragStart={(e) => handleDragStart(e, idx)}
+                        onDragOver={(e) => handleDragOver(e, idx)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, idx)}
+                        onDragEnd={handleDragEnd}
+                        className={`transition-colors ${
+                          isDragging
+                            ? 'opacity-40 bg-blue-50 border-2 border-dashed border-blue-500'
+                            : isOver
+                            ? 'bg-blue-100/70 border-t-2 border-b-2 border-blue-500'
+                            : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        {/* Drag Handle Column */}
+                        <td className="py-2 px-1 text-center cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-800">
+                          <GripVertical className="w-4 h-4 mx-auto" />
+                        </td>
+
+                        {/* Position (col_pos) */}
+                        <td className="py-2 px-2 text-center text-blue-900 font-bold bg-slate-50/50">
+                          {field.col_pos}
+                        </td>
+
+                        {/* Fieldname */}
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            value={field.fieldname}
+                            onChange={(e) =>
+                              handleUpdateField(idx, { fieldname: e.target.value })
+                            }
+                            onBlur={(e) =>
+                              handleUpdateField(idx, {
+                                fieldname: e.target.value.trim().toUpperCase(),
+                              })
+                            }
+                            className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500 uppercase font-bold text-slate-800"
+                          />
+                        </td>
+
+                        {/* Coltext */}
+                        <td className="py-1.5 px-2 font-sans">
+                          <input
+                            type="text"
+                            value={field.coltext}
+                            onChange={(e) => handleUpdateField(idx, { coltext: e.target.value })}
+                            className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500 text-slate-800 font-medium"
+                          />
+                        </td>
+
+                        {/* Data Type */}
+                        <td className="py-1.5 px-2">
+                          <select
+                            value={field.datatype}
+                            onChange={(e) => {
+                              const newType = e.target.value as SapDataType;
+                              handleUpdateField(idx, {
+                                datatype: newType,
+                                ...(newType === 'CHAR' ? { do_sum: false } : {}),
+                              });
+                            }}
+                            className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 text-slate-700"
+                          >
+                            <option value="CHAR">CHAR</option>
+                            <option value="NUMC">NUMC</option>
+                            <option value="DATS">DATS</option>
+                            <option value="TIMS">TIMS</option>
+                            <option value="CURR">CURR</option>
+                            <option value="DEC">DEC</option>
+                            <option value="UNIT">UNIT</option>
+                            <option value="INT4">INT4</option>
+                          </select>
+                        </td>
+
+                        {/* Output length */}
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="number"
+                            value={field.outputlen}
+                            onChange={(e) =>
+                              handleUpdateField(idx, {
+                                outputlen: Number(e.target.value) || 10,
+                              })
+                            }
+                            className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 text-center"
+                          />
+                        </td>
+
+                        {/* Justification (Just) */}
+                        <td className="py-1.5 px-2">
+                          <select
+                            value={field.just}
+                            onChange={(e) =>
+                              handleUpdateField(idx, { just: e.target.value as TextAlignment })
+                            }
+                            className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 text-center font-bold"
+                          >
+                            <option value="L">L</option>
+                            <option value="C">C</option>
+                            <option value="R">R</option>
+                          </select>
+                        </td>
+
+                        {/* Color */}
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            value={field.emphasize || ''}
+                            onChange={(e) =>
+                              handleUpdateField(idx, {
+                                emphasize: e.target.value.toUpperCase(),
+                              })
+                            }
+                            placeholder="C300"
+                            title="SAP ALV 색상코드 (예: C300, C310, C100, C500, C600)"
+                            className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-center font-bold text-[10px]"
+                          />
+                        </td>
+
+                        {/* Key */}
+                        <td className="py-1.5 px-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={field.key}
+                            onChange={(e) => handleUpdateField(idx, { key: e.target.checked })}
+                            className="w-4 h-4 accent-blue-600 rounded cursor-pointer"
+                          />
+                        </td>
+
+                        {/* Hotspot */}
+                        <td className="py-1.5 px-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={field.hotspot}
+                            onChange={(e) =>
+                              handleUpdateField(idx, { hotspot: e.target.checked })
+                            }
+                            className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                          />
+                        </td>
+
+                        {/* Checkbox */}
+                        <td className="py-1.5 px-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={field.checkbox}
+                            onChange={(e) =>
+                              handleUpdateField(idx, { checkbox: e.target.checked })
+                            }
+                            className="w-4 h-4 accent-slate-700 rounded cursor-pointer"
+                          />
+                        </td>
+
+                        {/* Edit */}
+                        <td className="py-1.5 px-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={field.edit}
+                            onChange={(e) => handleUpdateField(idx, { edit: e.target.checked })}
+                            className="w-4 h-4 accent-amber-600 rounded cursor-pointer"
+                          />
+                        </td>
+
+                        {/* Do Sum */}
+                        <td className="py-1.5 px-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={field.datatype === 'CHAR' ? false : field.do_sum}
+                            disabled={field.datatype === 'CHAR'}
+                            title={
+                              field.datatype === 'CHAR'
+                                ? 'CHAR fields cannot have total sum (DO_SUM).'
+                                : 'Calculate bottom sum (Σ)'
+                            }
+                            onChange={(e) =>
+                              handleUpdateField(idx, { do_sum: e.target.checked })
+                            }
+                            className={`w-4 h-4 rounded ${
+                              field.datatype === 'CHAR'
+                                ? 'opacity-25 cursor-not-allowed bg-slate-200'
+                                : 'accent-emerald-600 cursor-pointer'
+                            }`}
+                          />
+                        </td>
+
+                        {/* Ref Table */}
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            value={field.ref_table || ''}
+                            onChange={(e) =>
+                              handleUpdateField(idx, { ref_table: e.target.value.toUpperCase() })
+                            }
+                            placeholder="VBAK"
+                            className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
+                          />
+                        </td>
+
+                        {/* Ref Field */}
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            value={field.ref_field || ''}
+                            onChange={(e) =>
+                              handleUpdateField(idx, { ref_field: e.target.value.toUpperCase() })
+                            }
+                            placeholder="VBELN"
+                            className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
+                          />
+                        </td>
+
+                        {/* Drilldown T-Code */}
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            value={field.drilldown_tcode || ''}
+                            onChange={(e) =>
+                              handleUpdateField(idx, {
+                                drilldown_tcode: e.target.value.toUpperCase(),
+                              })
+                            }
+                            placeholder="VA03"
+                            className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
+                          />
+                        </td>
+
+                        {/* Actions & Reordering Buttons */}
+                        <td className="py-1.5 px-2 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleReorder(idx, idx - 1)}
+                              disabled={idx === 0}
+                              title="Move Up (Auto-updates COL_POS)"
+                              className="p-1 text-slate-400 hover:text-blue-700 disabled:opacity-20 cursor-pointer"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleReorder(idx, idx + 1)}
+                              disabled={idx === spec.field_catalog.length - 1}
+                              title="Move Down (Auto-updates COL_POS)"
+                              className="p-1 text-slate-400 hover:text-blue-700 disabled:opacity-20 cursor-pointer"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteField(idx)}
+                              title="Delete Field"
+                              className="p-1 text-slate-400 hover:text-red-600 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

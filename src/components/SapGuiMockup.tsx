@@ -437,30 +437,19 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
         </div>
       </div>
 
-      {/* 2. Standard Application Sub-Toolbar with side-pane toggle & Execute icon */}
+      {/* 2. Standard Application Sub-Toolbar with Execute icon */}
       <div className="flex items-center justify-between bg-[#dbe7f5] px-3 py-1 border-b border-[#a4bedb] gap-2">
         <div className="flex items-center gap-2">
-          {/* Dual-pane / side panel toggle icon */}
-          <button
-            title="화면 분할 / 레이아웃 토글"
-            className="p-1 rounded bg-[#e8f1fa] hover:bg-white border border-[#9bbadb] text-slate-700 shadow-2xs"
-          >
-            <div className="w-3.5 h-3.5 border border-slate-600 flex">
-              <div className="w-1.5 h-full bg-slate-500 border-r border-slate-600" />
-              <div className="flex-1 bg-white" />
-            </div>
-          </button>
-
           {/* SAP Iconic Clock with Green Checkmark (Execute F8) */}
           <button
             onClick={() => {
               setScreenMode(screenMode === 'alv' ? 'selection' : 'alv');
               setStatusMessage({
-                text: screenMode === 'alv' ? '선택 화면으로 전환되었습니다.' : 'ALV Grid 조회 완료',
+                text: screenMode === 'alv' ? 'Switched to Selection Screen.' : 'ALV Grid Displayed.',
                 type: 'S',
               });
             }}
-            title={screenMode === 'alv' ? '선택 화면으로 이동 (F3)' : '실행 (F8 / Execute)'}
+            title={screenMode === 'alv' ? 'Go to Selection Screen (F3)' : 'Execute (F8)'}
             className="p-1 rounded bg-[#e8f1fa] hover:bg-white border border-[#9bbadb] text-slate-700 shadow-2xs flex items-center justify-center cursor-pointer"
           >
             <div className="relative w-4 h-4 flex items-center justify-center">
@@ -468,32 +457,31 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
               <Check className="w-4 h-4 text-emerald-600 font-extrabold absolute -top-0.5 -right-0.5 drop-shadow-xs" strokeWidth={3.5} />
             </div>
           </button>
-
         </div>
 
         {/* View Switcher: Selection vs ALV Grid */}
         <div className="flex items-center gap-1 bg-[#cbdcf0] p-0.5 rounded border border-[#a4bedb]">
           <button
             onClick={() => setScreenMode('selection')}
-            className={`px-2.5 py-0.5 text-[11px] rounded transition-colors flex items-center gap-1 ${
+            className={`px-2.5 py-0.5 text-[11px] rounded transition-colors flex items-center gap-1 cursor-pointer ${
               screenMode === 'selection'
                 ? 'bg-white text-slate-900 font-semibold shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <SlidersHorizontal className="w-3 h-3" />
-            선택 화면
+            Selection Screen
           </button>
           <button
             onClick={() => setScreenMode('alv')}
-            className={`px-2.5 py-0.5 text-[11px] rounded transition-colors flex items-center gap-1 ${
+            className={`px-2.5 py-0.5 text-[11px] rounded transition-colors flex items-center gap-1 cursor-pointer ${
               screenMode === 'alv'
                 ? 'bg-white text-slate-900 font-semibold shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Layers className="w-3 h-3 text-blue-700" />
-            ALV Grid 결과
+            ALV Grid Result
           </button>
         </div>
       </div>

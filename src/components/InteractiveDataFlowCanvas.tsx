@@ -417,64 +417,66 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
   const maxY = Math.max(1050, ...nodes.map((n) => n.y + n.height + 80));
 
   return (
-    <div className="space-y-3 pt-3 border-t border-slate-200 font-sans">
-      {/* 1. Canvas Palette & Action Toolbar */}
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
-        {/* Left: Shape insertion palette */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-bold text-slate-800 flex items-center gap-1 mr-1">
-            <Link2 className="w-3.5 h-3.5 text-blue-600" />
-            <span>직접 그리기:</span>
-          </span>
+    <div className={`space-y-3 ${readOnly ? '' : 'pt-3 border-t border-slate-200'} font-sans`}>
+      {/* 1. Canvas Palette & Action Toolbar (Only in edit mode) */}
+      {!readOnly && (
+        <>
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
+          {/* Left: Shape insertion palette */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-bold text-slate-800 flex items-center gap-1 mr-1">
+              <Link2 className="w-3.5 h-3.5 text-blue-600" />
+              <span>Add Node:</span>
+            </span>
 
           <button
             type="button"
             onClick={() => handleAddShape('start')}
-            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1"
-            title="시작 캡슐 노드 추가"
+            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1 cursor-pointer"
+            title="Add Start node"
           >
             <Play className="w-3 h-3 text-emerald-600 fill-emerald-600" />
-            <span>시작</span>
+            <span>Start</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleAddShape('process')}
-            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1"
-            title="처리 프로세스 박스 추가"
+            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1 cursor-pointer"
+            title="Add Process box"
           >
             <Square className="w-3 h-3 text-blue-600" />
-            <span>박스 (처리)</span>
+            <span>Process Box</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleAddShape('decision')}
-            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1"
-            title="처리 옵션 마름모 추가"
+            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1 cursor-pointer"
+            title="Add Decision (Branch) diamond"
           >
             <HelpCircle className="w-3 h-3 text-amber-600" />
-            <span>처리 옵션 (분기)</span>
+            <span>Decision (Branch)</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleAddShape('database')}
-            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1"
-            title="데이터베이스 실린더 추가"
+            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1 cursor-pointer"
+            title="Add Database Cylinder node"
           >
             <Database className="w-3 h-3 text-purple-600" />
-            <span>DB 실린더</span>
+            <span>DB Table</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleAddShape('end')}
-            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1"
-            title="종료 캡슐 노드 추가"
+            className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded shadow-2xs flex items-center gap-1 cursor-pointer"
+            title="Add End node"
           >
             <Square className="w-3 h-3 text-rose-600 fill-rose-600 rounded-sm" />
-            <span>종료</span>
+            <span>End</span>
           </button>
         </div>
 
@@ -484,41 +486,41 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
             <button
               type="button"
               onClick={handleDeleteSelected}
-              className="px-2 py-1 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-300 rounded flex items-center gap-1"
-              title="선택된 항목 삭제 (Delete 키)"
+              className="px-2 py-1 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-300 rounded flex items-center gap-1 cursor-pointer"
+              title="Delete Selected Item (Delete key)"
             >
               <Trash2 className="w-3 h-3" />
-              <span>선택 삭제</span>
+              <span>Delete</span>
             </button>
           ) : null}
 
           <button
             type="button"
             onClick={handleAutoGenerate}
-            className="px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded flex items-center gap-1"
-            title="프로그램 로직 기반 자동 배치"
+            className="px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded flex items-center gap-1 cursor-pointer"
+            title="Auto-generate flow from program logic"
           >
             <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-            <span>로직 자동 생성</span>
+            <span>Auto-Generate Flow</span>
           </button>
 
           <button
             type="button"
             onClick={handleLoadReferenceTemplate}
-            className="px-2 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded flex items-center gap-1"
-            title="참조 그림과 동일한 표준 템플릿 불러오기"
+            className="px-2 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded flex items-center gap-1 cursor-pointer"
+            title="Load standard reference flowchart template"
           >
             <RotateCcw className="w-3 h-3 text-slate-500" />
-            <span>표준 템플릿</span>
+            <span>Standard Template</span>
           </button>
 
           <button
             type="button"
             onClick={handleClearCanvas}
-            className="px-2 py-1 text-xs text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded"
-            title="캔버스 비우기"
+            className="px-2 py-1 text-xs text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded cursor-pointer"
+            title="Clear canvas"
           >
-            지우기
+            Clear Canvas
           </button>
 
           {/* Zoom controls */}
@@ -526,24 +528,24 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
             <button
               type="button"
               onClick={() => setZoom((z) => Math.min(z + 0.15, 2.0))}
-              className="p-1 hover:bg-slate-100 text-slate-600"
-              title="확대"
+              className="p-1 hover:bg-slate-100 text-slate-600 cursor-pointer"
+              title="Zoom In"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={() => setZoom((z) => Math.max(z - 0.15, 0.5))}
-              className="p-1 hover:bg-slate-100 text-slate-600"
-              title="축소"
+              className="p-1 hover:bg-slate-100 text-slate-600 cursor-pointer"
+              title="Zoom Out"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={() => setZoom(1)}
-              className="px-1.5 py-0.5 text-[11px] text-slate-600 font-mono hover:bg-slate-100"
-              title="100% 리셋"
+              className="px-1.5 py-0.5 text-[11px] text-slate-600 font-mono hover:bg-slate-100 cursor-pointer"
+              title="Reset 100%"
             >
               {Math.round(zoom * 100)}%
             </button>
@@ -552,8 +554,8 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
           <button
             type="button"
             onClick={handleDownloadSvg}
-            className="p-1.5 hover:bg-slate-200 bg-white border border-slate-300 rounded text-slate-700"
-            title="SVG 이미지로 내보내기"
+            className="p-1.5 hover:bg-slate-200 bg-white border border-slate-300 rounded text-slate-700 cursor-pointer"
+            title="Export as SVG"
           >
             <Download className="w-3.5 h-3.5" />
           </button>
@@ -563,15 +565,17 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
       {/* Helper guide banner */}
       <div className="px-3 py-1.5 bg-blue-50/70 border border-blue-200 rounded text-[11px] text-blue-900 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-1.5">
-          <span className="font-bold">💡 직접 연결 방법:</span>
+          <span className="font-bold">💡 Connection Guide:</span>
           <span>
-            도형에 마우스를 올리면 나타나는 <strong>원형 포인트(●)를 드래그하여 다른 도형으로 이어주면 화살표가 자동 연결</strong>됩니다.
-            도형을 드래그하여 자유롭게 배치하고, 더블클릭하여 텍스트를 수정할 수 있습니다.
+            Hover over a node to reveal connection points (●), then <strong>drag from a point to another node to connect arrows automatically</strong>.
+            Drag nodes to reposition, and double-click to edit text.
           </span>
         </div>
       </div>
+      </>
+      )}
 
-      {notice && (
+      {notice && !readOnly && (
         <div className="p-2 bg-emerald-50 border border-emerald-300 rounded text-xs text-emerald-800 flex items-center gap-2">
           <Check className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{notice}</span>
@@ -580,7 +584,11 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
 
       {/* 2. Interactive SVG Canvas Area */}
       <div
-        className="relative border border-slate-300 rounded-lg overflow-auto bg-slate-100/60 shadow-inner h-[680px]"
+        className={
+          readOnly
+            ? 'relative flex justify-center bg-white p-1 overflow-visible'
+            : 'relative border border-slate-300 rounded-lg overflow-auto bg-slate-100/60 shadow-inner h-[680px]'
+        }
         onClick={() => {
           setSelectedNodeId(null);
           setSelectedEdgeId(null);
@@ -590,13 +598,16 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
       >
         <svg
           ref={canvasRef}
-          width={maxX * zoom}
-          height={maxY * zoom}
+          width={readOnly ? '100%' : maxX * zoom}
+          height={readOnly ? 'auto' : maxY * zoom}
           viewBox={`0 0 ${maxX} ${maxY}`}
-          onMouseMove={handleCanvasMouseMove}
-          onMouseUp={handleCanvasMouseUp}
-          className="select-none cursor-default"
-          style={{ backgroundColor: '#ffffff' }}
+          onMouseMove={readOnly ? undefined : handleCanvasMouseMove}
+          onMouseUp={readOnly ? undefined : handleCanvasMouseUp}
+          className="select-none cursor-default max-w-full"
+          style={{
+            backgroundColor: '#ffffff',
+            maxHeight: readOnly ? '420px' : undefined,
+          }}
         >
           {/* Subtle Grid Pattern */}
           <defs>

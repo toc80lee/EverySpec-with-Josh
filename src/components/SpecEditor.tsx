@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   FileText,
   Database,
   Sliders,
   Layout,
   CheckCircle,
+  CheckCircle2,
+  AlertTriangle,
+  ShieldAlert,
+  Info,
   Plus,
   Trash2,
   Table,
@@ -16,8 +20,20 @@ import {
   Download,
   Upload,
   Layers,
+  Printer,
+  X,
 } from 'lucide-react';
-import { ProgramSpec, SapModule, TestCase, AlvToolbarButton, AlvLayout, AlvField } from '../types/sap';
+import {
+  ProgramSpec,
+  SapModule,
+  TestCase,
+  AlvToolbarButton,
+  AlvLayout,
+  AlvField,
+  SelectionParameter,
+  SelectionKind,
+  SapDataType,
+} from '../types/sap';
 import { FieldCatalogEditor } from './FieldCatalogEditor';
 import { SelectionScreenEditor } from './SelectionScreenEditor';
 import { ToolbarEditor } from './ToolbarEditor';
@@ -27,13 +43,15 @@ import { SAMPLE_SPECS } from '../data/sampleSpecs';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { requestAiLogicGeneration } from '../utils/aiLogicGenerator';
 import { downloadExcelTemplate, parseUploadedExcelOrCsv } from '../utils/excelTemplateHelper';
+import { validateSapTCode, suggestCustomerTCode } from '../utils/sapValidation';
 
 interface SpecEditorProps {
   spec: ProgramSpec;
   onChange: (updated: ProgramSpec) => void;
+  onTriggerPrint?: () => void;
 }
 
-export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
+export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTriggerPrint }) => {
   // Main Tabs: 1. Program Spec -> 2. Selection Screen -> 3. ALV Grid
   const [mainTab, setMainTab] = useState<'info' | 'selection' | 'alv'>('info');
 
@@ -47,6 +65,92 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+
+  // SAP T-Code Naming Standard Validation (Customer Namespace: Z... or Y...)
+  const tcodeValidation = useMemo(() => validateSapTCode(spec.tcode), [spec.tcode]);
+  const [tcodeAlertNotice, setTcodeAlertNotice] = useState<string | null>(null);
+
+  // Dynamic Selection Param Addition State & Function
+  const [showAddParamModal, setShowAddParamModal] = useState(false);
+  const [newParamForm, setNewParamForm] = useState<{
+    kind: SelectionKind;
+    name: string;
+    datatype: SapDataType;
+    length: number;
+    text: string;
+    ref_table: string;
+    ref_field: string;
+    obligatory: boolean;
+    default_val: string;
+  }>({
+    kind: 'PARAMETER',
+    name: 'P_BUKRS',
+    datatype: 'CHAR',
+    length: 4,
+    text: '회사코드',
+    ref_table: 'T001',
+    ref_field: 'BUKRS',
+    obligatory: true,
+    default_val: '1000',
+  });
+
+  /**
+   * Dynamically adds a new input field (Parameters or Select-Options) to the selection_params array,
+   * including inputs for field name, data type, and length.
+   */
+  const handleAddSelectionParam = (paramData?: {
+    kind?: SelectionKind;
+    name?: string;
+    datatype?: SapDataType;
+    length?: number;
+    text?: string;
+    ref_table?: string;
+    ref_field?: string;
+    obligatory?: boolean;
+    default_val?: string;
+  }): SelectionParameter => {
+    const kind: SelectionKind = paramData?.kind || 'PARAMETER';
+    const isParam = kind === 'PARAMETER';
+    const nextIdx = spec.selection_params.length + 1;
+
+    // Field Name: e.g. P_BUKRS, S_VBELN
+    const defaultName = isParam ? `P_FLD${nextIdx}` : `S_FLD${nextIdx}`;
+    const name = (paramData?.name || defaultName).trim().toUpperCase();
+
+    // Data Type: e.g. CHAR, DATS, CURR, etc.
+    const datatype: SapDataType = paramData?.datatype || 'CHAR';
+
+    // Length: e.g. 10, 4, 18, 8
+    const length =
+      Number(paramData?.length) > 0
+        ? Number(paramData?.length)
+        : datatype === 'DATS'
+        ? 8
+        : datatype === 'TIMS'
+        ? 6
+        : 10;
+
+    const newParam: SelectionParameter = {
+      id: `param-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      kind,
+      name,
+      datatype,
+      length,
+      text: paramData?.text?.trim() || (isParam ? `파라미터 항목 ${nextIdx}` : `선택 범위 항목 ${nextIdx}`),
+      ref_table: paramData?.ref_table?.trim().toUpperCase() || '',
+      ref_field: paramData?.ref_field?.trim().toUpperCase() || '',
+      obligatory: !!paramData?.obligatory,
+      default_val: paramData?.default_val?.trim() || '',
+      low: '',
+      high: '',
+      sign: 'I',
+      option: 'EQ',
+    };
+
+    const updated = [...spec.selection_params, newParam];
+    onChange({ ...spec, selection_params: updated });
+    return newParam;
+  };
 
   // Voice input for Business Purpose
   const businessVoice = useVoiceInput({
@@ -204,6 +308,21 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
     }
   };
 
+  const handleReorderFieldCatalog = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || toIndex < 0 || toIndex >= activeFieldCatalog.length) return;
+    const list = [...activeFieldCatalog];
+    const [movedItem] = list.splice(fromIndex, 1);
+    list.splice(toIndex, 0, movedItem);
+
+    // Automatically update col_pos for each field accordingly (1-indexed sequential: 1, 2, 3...)
+    const renumbered = list.map((field, idx) => ({
+      ...field,
+      col_pos: idx + 1,
+    }));
+
+    updateActiveFieldCatalog(renumbered);
+  };
+
   const updateActiveToolbarButtons = (newButtons: AlvToolbarButton[]) => {
     if (activeIsItem) {
       onChange({
@@ -327,6 +446,12 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
           >
             <FileText className="w-3.5 h-3.5" />
             <span>Program Spec</span>
+            {!tcodeValidation.isValid && (
+              <span
+                className="w-2 h-2 rounded-full bg-amber-400 ring-2 ring-white animate-pulse"
+                title={`SAP T-Code 표준 위반: ${tcodeValidation.message}`}
+              />
+            )}
           </button>
 
           {/* Main Tab 2: Selection Screen (선택 화면) */}
@@ -378,12 +503,77 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
         {/* ========================================================================= */}
         {mainTab === 'info' && (
           <div className="space-y-5 max-w-4xl">
+            {/* Top Header & Alert Notices */}
             <div>
               <h3 className="text-sm font-bold text-slate-900">Basic Information & Specification</h3>
               <p className="text-xs text-slate-500">
-                Define program identification, transaction code, author, and technical specifications.
+                Define program identification, transaction code, author, and technical specifications according to SAP corporate standards.
               </p>
             </div>
+
+            {/* Corporate Governance Standard Deviation Alert Banner */}
+            {!tcodeValidation.isValid && (
+              <div
+                className={`p-3.5 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200 ${
+                  tcodeValidation.severity === 'error'
+                    ? 'bg-rose-50 border-rose-300 text-rose-950'
+                    : 'bg-amber-50/90 border-amber-300 text-amber-950'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <ShieldAlert
+                    className={`w-4 h-4 shrink-0 mt-0.5 ${
+                      tcodeValidation.severity === 'error' ? 'text-rose-600' : 'text-amber-600'
+                    }`}
+                  />
+                  <div>
+                    <div className="font-bold flex items-center gap-2">
+                      <span>SAP Corporate Governance Alert: Custom T-Code Deviation</span>
+                      <span className="text-[10px] px-1.5 py-0.2 bg-white/90 border rounded font-mono font-bold text-slate-700">
+                        {tcodeValidation.ruleName}
+                      </span>
+                    </div>
+                    <p className="text-[11px] mt-0.5 leading-snug">
+                      Current T-Code <strong>'{spec.tcode || '(blank)'}'</strong> deviates from standard SAP corporate conventions: custom development must start with <strong>'Z'</strong> or <strong>'Y'</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                {tcodeValidation.suggestedTCode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fixed = tcodeValidation.suggestedTCode!;
+                      onChange({ ...spec, tcode: fixed });
+                      setTcodeAlertNotice(`Transaction Code updated to compliant '${fixed}' (Customer Namespace).`);
+                      setTimeout(() => setTcodeAlertNotice(null), 4500);
+                    }}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-md shadow-xs flex items-center justify-center gap-1.5 shrink-0 transition-colors cursor-pointer"
+                    title="Click to automatically apply the standard-compliant Customer Namespace T-Code"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Auto-Fix to '{tcodeValidation.suggestedTCode}'</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Alert Notification Toast/Notice */}
+            {tcodeAlertNotice && (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg text-xs text-emerald-900 flex items-center justify-between shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-medium">{tcodeAlertNotice}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTcodeAlertNotice(null)}
+                  className="text-emerald-700 hover:text-emerald-950 font-bold px-1"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
@@ -416,19 +606,6 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Transaction Code
-                </label>
-                <input
-                  type="text"
-                  value={spec.tcode}
-                  onChange={(e) => onChange({ ...spec, tcode: e.target.value })}
-                  onBlur={(e) => onChange({ ...spec, tcode: e.target.value.trim().toUpperCase() })}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-mono font-bold text-blue-900 uppercase focus:bg-white focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Module
                 </label>
                 <select
@@ -448,6 +625,138 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Target SAP Release
+                </label>
+                <input
+                  type="text"
+                  value={spec.target_sap_release}
+                  onChange={(e) => onChange({ ...spec, target_sap_release: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500"
+                />
+              </div>
+
+              {/* Transaction Code Field with Standard Validation & Live Alert Box */}
+              <div className="md:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Transaction Code (T-Code)
+                  </label>
+                  {tcodeValidation.isValid ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      <span>SAP 표준 준수 (Z/Y 네임스페이스)</span>
+                    </span>
+                  ) : (
+                    <span
+                      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                        tcodeValidation.severity === 'error'
+                          ? 'text-rose-700 bg-rose-50 border-rose-300'
+                          : 'text-amber-800 bg-amber-50 border-amber-300'
+                      }`}
+                    >
+                      <AlertTriangle className="w-3 h-3" />
+                      <span>표준 규칙 위반 경고</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={spec.tcode}
+                    onChange={(e) => {
+                      onChange({ ...spec, tcode: e.target.value });
+                    }}
+                    onBlur={(e) => {
+                      const formatted = e.target.value.trim().toUpperCase();
+                      onChange({ ...spec, tcode: formatted });
+                      const check = validateSapTCode(formatted);
+                      if (!check.isValid) {
+                        setTcodeAlertNotice(check.message);
+                      }
+                    }}
+                    className={`w-full rounded px-3 py-1.5 text-xs font-mono font-bold uppercase transition-colors pr-8 ${
+                      !tcodeValidation.isValid
+                        ? tcodeValidation.severity === 'error'
+                          ? 'bg-rose-50/70 border-2 border-rose-400 text-rose-950 focus:bg-white focus:border-rose-600'
+                          : 'bg-amber-50/70 border-2 border-amber-400 text-amber-950 focus:bg-white focus:border-amber-600'
+                        : 'bg-slate-50 border border-slate-300 text-blue-900 focus:bg-white focus:border-blue-500'
+                    }`}
+                    placeholder="예: ZSD01, YMM01"
+                  />
+                  <div className="absolute right-2.5 top-2 pointer-events-none">
+                    {tcodeValidation.isValid ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    ) : (
+                      <AlertTriangle
+                        className={`w-3.5 h-3.5 ${
+                          tcodeValidation.severity === 'error' ? 'text-rose-600' : 'text-amber-600'
+                        }`}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Deviation Alert & Auto-Fix Card */}
+                {!tcodeValidation.isValid && (
+                  <div
+                    className={`mt-1.5 p-2.5 rounded-lg text-xs border space-y-1.5 shadow-2xs ${
+                      tcodeValidation.severity === 'error'
+                        ? 'bg-rose-50 border-rose-300 text-rose-950'
+                        : 'bg-amber-50 border-amber-300 text-amber-950'
+                    }`}
+                  >
+                    <div className="flex items-start gap-1.5">
+                      <AlertTriangle
+                        className={`w-4 h-4 shrink-0 mt-0.5 ${
+                          tcodeValidation.severity === 'error' ? 'text-rose-600' : 'text-amber-600'
+                        }`}
+                      />
+                      <div className="flex-1">
+                        <div className="font-bold flex items-center justify-between text-xs">
+                          <span>SAP 명명 규칙 위반 경고</span>
+                          <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded bg-white border border-amber-300 font-semibold text-slate-700">
+                            {tcodeValidation.ruleName}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] leading-tight font-medium">
+                          {tcodeValidation.message}
+                        </p>
+                        <p className="mt-1 text-[10px] text-slate-600 leading-normal">
+                          {tcodeValidation.details}
+                        </p>
+                      </div>
+                    </div>
+
+                    {tcodeValidation.suggestedTCode && (
+                      <div className="pt-1.5 border-t border-amber-200 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-700 font-medium">
+                          추천 표준 T-Code:{' '}
+                          <strong className="font-mono text-blue-900 bg-white px-1.5 py-0.5 rounded border border-slate-300">
+                            {tcodeValidation.suggestedTCode}
+                          </strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const fixed = tcodeValidation.suggestedTCode!;
+                            onChange({ ...spec, tcode: fixed });
+                            setTcodeAlertNotice(`Transaction Code가 표준 '${fixed}'로 자동 변경되었습니다.`);
+                            setTimeout(() => setTcodeAlertNotice(null), 4000);
+                          }}
+                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-2xs flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>표준 T-Code로 자동 변경</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Program Title
@@ -460,7 +769,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                 />
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Author
                 </label>
@@ -468,18 +777,6 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                   type="text"
                   value={spec.author}
                   onChange={(e) => onChange({ ...spec, author: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Target SAP Release
-                </label>
-                <input
-                  type="text"
-                  value={spec.target_sap_release}
-                  onChange={(e) => onChange({ ...spec, target_sap_release: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500"
                 />
               </div>
@@ -743,11 +1040,69 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
         {/* ========================================================================= */}
         {mainTab === 'selection' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">Selection Screen (선택 화면 파라미터 정의)</h3>
-              <p className="text-xs text-slate-500">
-                사용자가 프로그램을 실행하기 전 조회 조건을 입력하는 화면의 PARAMETERS 및 SELECT-OPTIONS 항목들을 명세합니다.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-blue-600" />
+                  <span>Selection Screen (선택 화면 파라미터 정의)</span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-blue-100 text-blue-900 font-bold">
+                    총 {spec.selection_params.length}개 항목
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  프로그램 실행 전 조회 조건(PARAMETERS 단일값 및 SELECT-OPTIONS 범위선택)의 필드명, 데이터 타입, 길이를 동적으로 추가하고 관리합니다.
+                </p>
+              </div>
+
+              {/* Dynamic Add Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextIdx = spec.selection_params.length + 1;
+                    setNewParamForm({
+                      kind: 'PARAMETER',
+                      name: `P_FLD${nextIdx}`,
+                      datatype: 'CHAR',
+                      length: 10,
+                      text: `파라미터 항목 ${nextIdx}`,
+                      ref_table: '',
+                      ref_field: '',
+                      obligatory: false,
+                      default_val: '',
+                    });
+                    setShowAddParamModal(true);
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="새 Parameters 필드 추가 (필드명, 데이터타입, 길이 지정)"
+                >
+                  <Plus className="w-3.5 h-3.5 text-amber-600" />
+                  <span>+ Parameters 추가</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextIdx = spec.selection_params.length + 1;
+                    setNewParamForm({
+                      kind: 'SELECT_OPTION',
+                      name: `S_FLD${nextIdx}`,
+                      datatype: 'CHAR',
+                      length: 10,
+                      text: `선택 범위 항목 ${nextIdx}`,
+                      ref_table: '',
+                      ref_field: '',
+                      obligatory: false,
+                      default_val: '',
+                    });
+                    setShowAddParamModal(true);
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="새 Select-options 필드 추가 (필드명, 데이터타입, 길이 지정)"
+                >
+                  <Plus className="w-3.5 h-3.5 text-blue-600" />
+                  <span>+ Select-options 추가</span>
+                </button>
+              </div>
             </div>
 
             <SelectionScreenEditor
@@ -755,7 +1110,271 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
               onChange={(updatedParams) => {
                 onChange({ ...spec, selection_params: updatedParams });
               }}
+              onAddParam={handleAddSelectionParam}
             />
+          </div>
+        )}
+
+        {/* Modal for Dynamically Adding Selection Parameter with Field Name, Data Type, and Length */}
+        {showAddParamModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-blue-400" />
+                  <h4 className="text-sm font-bold">
+                    {newParamForm.kind === 'PARAMETER' ? 'Parameters (단일 입력)' : 'Select-options (범위 선택)'} 필드 동적 추가
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddParamModal(false)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Quick SAP Field Presets */}
+              <div className="px-5 pt-3 pb-1 bg-slate-50 border-b border-slate-200 text-xs">
+                <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
+                  자주 사용하는 표준 프리셋 빠른 적용:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: 'P_BUKRS (회사코드)', kind: 'PARAMETER' as SelectionKind, name: 'P_BUKRS', datatype: 'CHAR' as SapDataType, length: 4, text: '회사코드', ref_table: 'T001', ref_field: 'BUKRS', obligatory: true, default_val: '1000' },
+                    { label: 'S_ERDAT (전표일자)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_ERDAT', datatype: 'DATS' as SapDataType, length: 8, text: '전표일자', ref_table: 'VBAK', ref_field: 'ERDAT', obligatory: false, default_val: '' },
+                    { label: 'S_VBELN (판매오더)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_VBELN', datatype: 'CHAR' as SapDataType, length: 10, text: '판매오더 번호', ref_table: 'VBAK', ref_field: 'VBELN', obligatory: false, default_val: '' },
+                    { label: 'P_WERKS (플랜트)', kind: 'PARAMETER' as SelectionKind, name: 'P_WERKS', datatype: 'CHAR' as SapDataType, length: 4, text: '플랜트', ref_table: 'T001W', ref_field: 'WERKS', obligatory: true, default_val: '1000' },
+                    { label: 'S_MATNR (자재코드)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_MATNR', datatype: 'CHAR' as SapDataType, length: 18, text: '자재코드', ref_table: 'MARA', ref_field: 'MATNR', obligatory: false, default_val: '' },
+                    { label: 'P_VKORG (영업조직)', kind: 'PARAMETER' as SelectionKind, name: 'P_VKORG', datatype: 'CHAR' as SapDataType, length: 4, text: '영업조직', ref_table: 'VBAK', ref_field: 'VKORG', obligatory: true, default_val: '1000' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => setNewParamForm({ ...preset })}
+                      className="px-2 py-0.5 bg-white hover:bg-blue-50 hover:border-blue-300 border border-slate-200 rounded text-[11px] font-mono text-slate-700 transition-colors cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleAddSelectionParam(newParamForm);
+                  setShowAddParamModal(false);
+                }}
+                className="p-5 space-y-4 text-xs"
+              >
+                {/* Kind Toggle */}
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">구분 (Kind)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewParamForm((f) => ({
+                          ...f,
+                          kind: 'PARAMETER',
+                          name: f.name.startsWith('S_') ? f.name.replace(/^S_/, 'P_') : f.name,
+                        }));
+                      }}
+                      className={`py-1.5 px-3 rounded border text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+                        newParamForm.kind === 'PARAMETER'
+                          ? 'bg-amber-100 border-amber-400 text-amber-900 ring-1 ring-amber-400'
+                          : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>PARAMETERS (단일 입력값)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewParamForm((f) => ({
+                          ...f,
+                          kind: 'SELECT_OPTION',
+                          name: f.name.startsWith('P_') ? f.name.replace(/^P_/, 'S_') : f.name,
+                        }));
+                      }}
+                      className={`py-1.5 px-3 rounded border text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+                        newParamForm.kind === 'SELECT_OPTION'
+                          ? 'bg-blue-100 border-blue-400 text-blue-900 ring-1 ring-blue-400'
+                          : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>SELECT-OPTIONS (범위/복수선택)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Field Name & Data Type & Length */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      변수명 (Field Name) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newParamForm.name}
+                      onChange={(e) =>
+                        setNewParamForm({ ...newParamForm, name: e.target.value.toUpperCase() })
+                      }
+                      placeholder={newParamForm.kind === 'PARAMETER' ? 'P_BUKRS' : 'S_VBELN'}
+                      className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 font-mono font-bold text-blue-950 uppercase focus:bg-white focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      데이터 타입 (Data Type) <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={newParamForm.datatype}
+                      onChange={(e) => {
+                        const dt = e.target.value as SapDataType;
+                        const defaultLen = dt === 'DATS' ? 8 : dt === 'TIMS' ? 6 : dt === 'UNIT' ? 3 : dt === 'CURR' ? 15 : dt === 'STRING' ? 255 : 10;
+                        setNewParamForm({
+                          ...newParamForm,
+                          datatype: dt,
+                          length: defaultLen,
+                        });
+                      }}
+                      className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1.5 font-mono text-slate-800 focus:bg-white focus:border-blue-500"
+                    >
+                      <option value="CHAR">CHAR (문자열)</option>
+                      <option value="NUMC">NUMC (숫자형 문자)</option>
+                      <option value="DATS">DATS (날짜 YYYYMMDD)</option>
+                      <option value="TIMS">TIMS (시간 HHMMSS)</option>
+                      <option value="CURR">CURR (통화 금액)</option>
+                      <option value="DEC">DEC (소수점 숫자)</option>
+                      <option value="INT4">INT4 (4바이트 정수)</option>
+                      <option value="UNIT">UNIT (수량 단위)</option>
+                      <option value="STRING">STRING (가변 문자열)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      길이 (Length) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={255}
+                      required
+                      value={newParamForm.length}
+                      onChange={(e) =>
+                        setNewParamForm({
+                          ...newParamForm,
+                          length: Math.max(1, parseInt(e.target.value) || 1),
+                        })
+                      }
+                      className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 font-mono text-center text-slate-800 focus:bg-white focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Screen Text */}
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    선택 화면 텍스트 (Screen Text / Label) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newParamForm.text}
+                    onChange={(e) => setNewParamForm({ ...newParamForm, text: e.target.value })}
+                    placeholder="예: 회사코드, 전표일자, 판매오더 번호"
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-slate-800 focus:bg-white focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Reference Table & Field */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      참조 테이블 (Ref Table)
+                    </label>
+                    <input
+                      type="text"
+                      value={newParamForm.ref_table}
+                      onChange={(e) =>
+                        setNewParamForm({ ...newParamForm, ref_table: e.target.value.toUpperCase() })
+                      }
+                      placeholder="예: VBAK, T001"
+                      className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 font-mono uppercase text-slate-800 focus:bg-white focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      참조 필드 (Ref Field)
+                    </label>
+                    <input
+                      type="text"
+                      value={newParamForm.ref_field}
+                      onChange={(e) =>
+                        setNewParamForm({ ...newParamForm, ref_field: e.target.value.toUpperCase() })
+                      }
+                      placeholder="예: VBELN, BUKRS"
+                      className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 font-mono uppercase text-slate-800 focus:bg-white focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Obligatory & Default Value */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      기본값 (Default Value)
+                    </label>
+                    <input
+                      type="text"
+                      value={newParamForm.default_val}
+                      onChange={(e) =>
+                        setNewParamForm({ ...newParamForm, default_val: e.target.value })
+                      }
+                      placeholder="예: 1000, 2026.01.01"
+                      className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-slate-800 focus:bg-white focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center pt-6">
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-800 font-semibold select-none">
+                      <input
+                        type="checkbox"
+                        checked={newParamForm.obligatory}
+                        onChange={(e) =>
+                          setNewParamForm({ ...newParamForm, obligatory: e.target.checked })
+                        }
+                        className="w-4 h-4 accent-red-600 rounded"
+                      />
+                      <span>필수 입력 (OBLIGATORY)</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Modal Buttons */}
+                <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddParamModal(false)}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold cursor-pointer"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>선택 조건 추가 완료</span>
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
@@ -1004,6 +1623,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange }) => {
                   onChange={(updatedCatalog, updatedMockRows) => {
                     updateActiveFieldCatalog(updatedCatalog, updatedMockRows);
                   }}
+                  onReorder={handleReorderFieldCatalog}
                 />
               </div>
             )}

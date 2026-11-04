@@ -15,12 +15,11 @@ export default function App() {
   const handleNewSpec = () => {
     const blankSpec: ProgramSpec = {
       id: `spec-custom-${Date.now()}`,
-      sample_type: '01',
-      program_id: 'ZRALV0010',
-      tcode: 'ZRALV0010',
-      title: 'Single ALV Grid',
-      module: 'CO',
-      author: 'Josh',
+      program_id: 'ZR_CUSTOM_REPORT',
+      tcode: 'ZREP01',
+      title: '신규 ALV 그리드 레포트 프로그램',
+      module: 'SD',
+      author: 'SAP 컨설턴트',
       created_date: new Date().toISOString().split('T')[0],
       target_sap_release: 'SAP S/4HANA 2023',
       program_type: 'REPORT',
@@ -199,8 +198,16 @@ export default function App() {
     setWorkspaceMode('split');
   };
 
+  // Trigger print-friendly view and PDF export
+  const handleTriggerPrint = () => {
+    setWorkspaceMode('document');
+    setTimeout(() => {
+      window.print();
+    }, 280);
+  };
+
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900 text-slate-900">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900 text-slate-900 print:h-auto print:min-h-screen print:overflow-visible print:bg-white">
       {/* 1. Header Navigation Bar */}
       <TopNav
         currentMode={workspaceMode}
@@ -208,10 +215,11 @@ export default function App() {
         currentSpec={currentSpec}
         onSelectTemplate={(s) => setCurrentSpec(s)}
         onNewSpec={handleNewSpec}
+        onTriggerPrint={handleTriggerPrint}
       />
 
       {/* 2. Main Workspace Viewport */}
-      <main className="flex-1 overflow-hidden p-3 bg-slate-950">
+      <main className="flex-1 overflow-hidden p-3 bg-slate-950 print:p-0 print:bg-white print:overflow-visible print:h-auto">
         {workspaceMode === 'split' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 h-full overflow-hidden">
             {/* Left Column: Specification Editor (5 / 12) */}
@@ -219,6 +227,7 @@ export default function App() {
               <SpecEditor
                 spec={currentSpec}
                 onChange={(updated) => setCurrentSpec(updated)}
+                onTriggerPrint={handleTriggerPrint}
               />
             </div>
 
@@ -246,6 +255,7 @@ export default function App() {
             <SpecEditor
               spec={currentSpec}
               onChange={(updated) => setCurrentSpec(updated)}
+              onTriggerPrint={handleTriggerPrint}
             />
           </div>
         )}
@@ -257,10 +267,11 @@ export default function App() {
         )}
 
         {workspaceMode === 'document' && (
-          <div className="h-full max-w-6xl mx-auto overflow-hidden">
+          <div className="h-full w-full overflow-hidden print:overflow-visible print:h-auto">
             <SpecDocumentView
               spec={currentSpec}
               onImportSpec={(imported) => setCurrentSpec(imported)}
+              onReturnToWorkspace={() => setWorkspaceMode('split')}
             />
           </div>
         )}

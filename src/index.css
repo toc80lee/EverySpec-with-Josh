@@ -31,18 +31,111 @@
   background: #94a3b8;
 }
 
-/* Print layout for SAP Specification Report */
+/* SAP A4 Document Pagination and Sheet Styles */
+.sap-a4-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  background-color: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14mm 14mm 12mm 14mm;
+  position: relative;
+  border-radius: 4px;
+}
+
+/* Official SAP Specification Document Print & PDF Export Styles */
 @media print {
-  body {
-    background: white !important;
+  @page {
+    size: A4 portrait;
+    margin: 10mm 10mm 12mm 10mm;
   }
-  .no-print {
+
+  /* Reset outer container clipping for complete multi-page document printing */
+  html,
+  body,
+  #root,
+  main {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    background: white !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Force show all pages during print even if page-flip mode is active on screen */
+  .sap-a4-sheet {
+    display: flex !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 275mm !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 0 0 12mm 0 !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .sap-a4-sheet:last-of-type,
+  .sap-a4-sheet.print-no-break-after {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* Elements to hide during print */
+  .no-print,
+  header.no-print,
+  nav.no-print,
+  aside.no-print,
+  button.no-print,
+  .no-print * {
     display: none !important;
   }
+
+  /* Elements to show only during print */
   .print-only {
     display: block !important;
   }
-  .page-break {
-    page-break-before: always;
+
+  /* Page break utilities */
+  .page-break,
+  .print-break-before {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Standard table printing: repeat header row across pages */
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Prevent shadow / borders on the root A4 sheet wrapper */
+  .print-clean {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 }

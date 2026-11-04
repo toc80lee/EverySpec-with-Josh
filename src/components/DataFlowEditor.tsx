@@ -16,10 +16,10 @@ export const DataFlowEditor: React.FC<DataFlowEditorProps> = ({ spec, onChange }
         <div>
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
             <Workflow className="w-4 h-4 text-blue-600" />
-            <span>Data Flow Diagram (프로그램 처리 흐름도 직접 작성)</span>
+            <span>Data Flow Diagram (Visual Program Flowchart)</span>
           </h3>
           <p className="text-xs text-slate-500">
-            시작, 박스(처리), 처리 옵션(분기), DB 실린더를 추가하고, 도형의 연결 포인트(●)를 드래그하여 화살표로 직접 이어주세요.
+            Add Start, Process Box, Decision (Branch), and DB Table nodes. Hover and drag connection ports (●) to connect arrows directly.
           </p>
         </div>
       </div>

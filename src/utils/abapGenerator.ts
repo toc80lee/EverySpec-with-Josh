@@ -49,16 +49,33 @@ export function generateFullAbapSource(spec: ProgramSpec): string {
     const def = p.default_val ? ` DEFAULT '${p.default_val}'` : '';
     const mem = p.memory_id ? ` MEMORY ID ${p.memory_id}` : '';
 
+    const abapType =
+      p.datatype === 'DATS'
+        ? 'TYPE d'
+        : p.datatype === 'TIMS'
+        ? 'TYPE t'
+        : p.datatype === 'INT4'
+        ? 'TYPE i'
+        : p.datatype === 'NUMC'
+        ? `TYPE n LENGTH ${p.length || 10}`
+        : p.datatype === 'CURR' || p.datatype === 'DEC'
+        ? `TYPE p LENGTH 8 DECIMALS 2`
+        : p.datatype === 'STRING'
+        ? 'TYPE string'
+        : `TYPE c LENGTH ${p.length || 10}`;
+
     if (isParam) {
       if (p.ref_table && p.ref_field) {
-        return `  PARAMETERS: ${name} TYPE ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}${oblig}${def}${mem}.`;
+        return `  PARAMETERS: ${name} TYPE ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}${oblig}${def}${mem}.    " ${p.text}`;
       }
-      return `  PARAMETERS: ${name} TYPE c LENGTH ${p.length || 10}${oblig}${def}${mem}.`;
+      return `  PARAMETERS: ${name} ${abapType}${oblig}${def}${mem}.    " ${p.text}`;
     } else {
       if (p.ref_table && p.ref_field) {
-        return `  SELECT-OPTIONS: ${name} FOR ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}${oblig}${def}${mem}.`;
+        return `  SELECT-OPTIONS: ${name} FOR ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}${oblig}${def}${mem}.    " ${p.text}`;
       }
-      return `  SELECT-OPTIONS: ${name} FOR sy-datum${oblig}${def}.`;
+      const forTarget = p.datatype === 'DATS' ? 'sy-datum' : `${name}_val`;
+      const decl = p.datatype === 'DATS' ? '' : `  DATA: ${name}_val ${abapType}.\n`;
+      return `${decl}  SELECT-OPTIONS: ${name} FOR ${forTarget}${oblig}${def}.    " ${p.text}`;
     }
   }).join('\n');
 
