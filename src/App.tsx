@@ -6,10 +6,12 @@ import { SpecEditor } from './components/SpecEditor';
 import { SapGuiMockup } from './components/SapGuiMockup';
 import { AbapCodeGenerator } from './components/AbapCodeGenerator';
 import { SpecDocumentView } from './components/SpecDocumentView';
+import { ProgramTemplateModal } from './components/ProgramTemplateModal';
 
 export default function App() {
   const [currentSpec, setCurrentSpec] = useState<ProgramSpec>(SAMPLE_SPECS[0]);
   const [workspaceMode, setWorkspaceMode] = useState<MainWorkspaceMode>('split');
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
 
   // Create new blank specification
   const handleNewSpec = () => {
@@ -216,6 +218,7 @@ export default function App() {
         onSelectTemplate={(s) => setCurrentSpec(s)}
         onNewSpec={handleNewSpec}
         onTriggerPrint={handleTriggerPrint}
+        onOpenTemplates={() => setIsTemplateModalOpen(true)}
       />
 
       {/* 2. Main Workspace Viewport */}
@@ -228,6 +231,7 @@ export default function App() {
                 spec={currentSpec}
                 onChange={(updated) => setCurrentSpec(updated)}
                 onTriggerPrint={handleTriggerPrint}
+                onOpenTemplates={() => setIsTemplateModalOpen(true)}
               />
             </div>
 
@@ -256,6 +260,7 @@ export default function App() {
               spec={currentSpec}
               onChange={(updated) => setCurrentSpec(updated)}
               onTriggerPrint={handleTriggerPrint}
+              onOpenTemplates={() => setIsTemplateModalOpen(true)}
             />
           </div>
         )}
@@ -276,6 +281,17 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Program Templates Management Modal */}
+      <ProgramTemplateModal
+        isOpen={isTemplateModalOpen}
+        onClose={() => setIsTemplateModalOpen(false)}
+        currentSpec={currentSpec}
+        onSelectTemplate={(s) => {
+          setCurrentSpec(s);
+          setIsTemplateModalOpen(false);
+        }}
+      />
     </div>
   );
 }

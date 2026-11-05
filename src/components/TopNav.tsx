@@ -2,6 +2,8 @@ import React from 'react';
 import { Layers, FileCode, FileText, SplitSquareVertical, Sparkles, Printer } from 'lucide-react';
 import { ProgramSpec } from '../types/sap';
 import { SAMPLE_SPECS } from '../data/sampleSpecs';
+import { PREDEFINED_TEMPLATES } from '../data/predefinedTemplates';
+import { getSavedUserTemplates } from '../utils/templateStorage';
 
 export type MainWorkspaceMode = 'split' | 'mockup_only' | 'editor_only' | 'abap_code' | 'document';
 
@@ -12,6 +14,7 @@ interface TopNavProps {
   onSelectTemplate: (spec: ProgramSpec) => void;
   onNewSpec: () => void;
   onTriggerPrint?: () => void;
+  onOpenTemplates?: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -21,6 +24,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   onSelectTemplate,
   onNewSpec,
   onTriggerPrint,
+  onOpenTemplates,
 }) => {
   return (
     <header className="no-print flex items-center justify-between gap-8 px-6 py-3.5 bg-slate-900 border-b border-slate-800 text-white shrink-0">
@@ -103,22 +107,59 @@ export const TopNav: React.FC<TopNavProps> = ({
       </nav>
 
       {/* Zone 3: 1 Primary Action & Template Selector */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2.5 shrink-0">
         <select
           value={currentSpec.id}
           onChange={(e) => {
-            const found = SAMPLE_SPECS.find(s => s.id === e.target.value);
-            if (found) onSelectTemplate(found);
+            const val = e.target.value;
+            // 1. Check Predefined templates
+            const foundPredefined = PREDEFINED_TEMPLATES.find(p => p.spec.id === val || p.id === val);
+            if (foundPredefined) {
+              onSelectTemplate(foundPredefined.spec);
+              return;
+            }
+            // 2. Check Saved user templates
+            const saved = getSavedUserTemplates();
+            const foundSaved = saved.find(s => s.spec.id === val || s.id === val);
+            if (foundSaved) {
+              onSelectTemplate(foundSaved.spec);
+              return;
+            }
+            // 3. Fallback to SAMPLE_SPECS
+            const foundSample = SAMPLE_SPECS.find(s => s.id === val);
+            if (foundSample) onSelectTemplate(foundSample);
           }}
-          className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium cursor-pointer"
+          className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium cursor-pointer max-w-56 truncate"
         >
-          <option value="" disabled>Select Specification Template</option>
-          {SAMPLE_SPECS.map(s => (
-            <option key={s.id} value={s.id}>
-              [{s.module}] {s.program_id} - {s.title}
-            </option>
-          ))}
+          <option value="" disabled>Select Program Template</option>
+          <optgroup label="Predefined Architecture Blueprints">
+            {PREDEFINED_TEMPLATES.map((tmpl) => (
+              <option key={tmpl.id} value={tmpl.spec.id}>
+                [{tmpl.category}] {tmpl.name}
+              </option>
+            ))}
+          </optgroup>
+          {getSavedUserTemplates().length > 0 && (
+            <optgroup label="My Saved Custom Templates">
+              {getSavedUserTemplates().map((tmpl) => (
+                <option key={tmpl.id} value={tmpl.spec.id}>
+                  [Custom] {tmpl.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
+
+        {/* Templates Library Modal Button */}
+        <button
+          type="button"
+          onClick={onOpenTemplates}
+          className="px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 shadow-xs flex items-center gap-1.5 cursor-pointer"
+          title="Browse, load, and save predefined SAP program templates (Header-Detail, Single-Table, OData-based)"
+        >
+          <Layers className="w-3.5 h-3.5 text-blue-400" />
+          <span>Templates</span>
+        </button>
 
         <button
           onClick={onNewSpec}

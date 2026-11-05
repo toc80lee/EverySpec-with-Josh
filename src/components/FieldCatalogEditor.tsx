@@ -16,9 +16,11 @@ import {
   ListOrdered,
   Table as TableIcon,
   Check,
+  Search,
 } from 'lucide-react';
 import { AlvField, ProgramSpec, SapDataType, TextAlignment } from '../types/sap';
 import { SAP_DICTIONARY_PRESETS, presetToAlvField } from '../data/sapDictionary';
+import { SapSearchHelpModal } from './SapSearchHelpModal';
 
 interface FieldCatalogEditorProps {
   spec: ProgramSpec;
@@ -34,12 +36,57 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
   const [selectedPresetIndex, setSelectedPresetIndex] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'sortable_list'>('table');
   const [reorderNotice, setReorderNotice] = useState<string | null>(null);
+  const [showSearchHelp, setShowSearchHelp] = useState(false);
+  const [editingFieldIndex, setEditingFieldIndex] = useState<number | null>(null);
 
   // Drag and Drop States
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [dragPosition, setDragPosition] = useState<'top' | 'bottom' | null>(null);
 
+  // Handle Search Help (F4) selection
+  const handleSelectSearchHelp = (selected: {
+    table: string;
+    field: string;
+    datatype: SapDataType;
+    length: number;
+    label: string;
+  }) => {
+    if (editingFieldIndex !== null && editingFieldIndex >= 0 && editingFieldIndex < spec.field_catalog.length) {
+      handleUpdateField(editingFieldIndex, {
+        ref_table: selected.table,
+        ref_field: selected.field,
+        fieldname: selected.field,
+        coltext: selected.label,
+        datatype: selected.datatype,
+        outputlen: selected.length,
+      });
+    } else {
+      // Add as new field from search help
+      const nextPos = spec.field_catalog.length + 1;
+      const newField: AlvField = {
+        id: `fcat-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        col_pos: nextPos,
+        fieldname: selected.field,
+        coltext: selected.label,
+        datatype: selected.datatype,
+        outputlen: selected.length,
+        just: selected.datatype === 'CURR' || selected.datatype === 'DEC' || selected.datatype === 'INT4' ? 'R' : selected.datatype === 'DATS' ? 'C' : 'L',
+        key: false,
+        hotspot: false,
+        checkbox: false,
+        edit: false,
+        do_sum: selected.datatype === 'CURR',
+        emphasize: '',
+        ref_table: selected.table,
+        ref_field: selected.field,
+      };
+      onChange([...spec.field_catalog, newField]);
+    }
+    setEditingFieldIndex(null);
+  };
+
+  // Reorder field catalog and automatically update col_pos for each field
   // Reorder field catalog and automatically update col_pos for each field
   const handleReorder = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex || toIndex < 0 || toIndex >= spec.field_catalog.length) return;
@@ -51,7 +98,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
       const [movedItem] = list.splice(fromIndex, 1);
       list.splice(toIndex, 0, movedItem);
 
-      // Automatically update col_pos for each field accordingly (1-indexed sequential)
+      // Automatically update col_pos for each field accordingly (1-indexed sequential: 1, 2, 3...)
       const renumbered = list.map((field, idx) => ({
         ...field,
         col_pos: idx + 1,
@@ -61,7 +108,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
     }
 
     const fieldName = spec.field_catalog[fromIndex]?.fieldname || 'Field';
-    setReorderNotice(`Field sequence for '${fieldName}' updated. (COL_POS automatically re-indexed)`);
+    setReorderNotice(`Field '${fieldName}' moved to position ${toIndex + 1}. (COL_POS automatically re-indexed)`);
     setTimeout(() => setReorderNotice(null), 3000);
   };
 
@@ -96,21 +143,27 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
 
   const handleDrop = (e: React.DragEvent, targetIndex: number) => {
     e.preventDefault();
-    if (draggedIndex === null || draggedIndex === targetIndex) {
+    if (draggedIndex === null) {
       setDraggedIndex(null);
       setDragOverIndex(null);
       setDragPosition(null);
       return;
     }
 
-    let finalTarget = targetIndex;
-    if (dragPosition === 'bottom' && draggedIndex > targetIndex) {
-      finalTarget = targetIndex + 1;
-    } else if (dragPosition === 'top' && draggedIndex < targetIndex) {
-      finalTarget = targetIndex - 1;
+    const pos = dragPosition || 'top';
+    const targetSlot = pos === 'bottom' ? targetIndex + 1 : targetIndex;
+
+    // Dropped right before or after itself means no change
+    if (draggedIndex === targetSlot || draggedIndex === targetSlot - 1) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      setDragPosition(null);
+      return;
     }
 
-    const clampedTarget = Math.max(0, Math.min(spec.field_catalog.length - 1, finalTarget));
+    const toIndex = draggedIndex < targetSlot ? targetSlot - 1 : targetSlot;
+    const clampedTarget = Math.max(0, Math.min(spec.field_catalog.length - 1, toIndex));
+
     handleReorder(draggedIndex, clampedTarget);
 
     setDraggedIndex(null);
@@ -167,10 +220,13 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
 
   // Delete field
   const handleDeleteField = (index: number) => {
+    const deletedName = spec.field_catalog[index]?.fieldname || 'Field';
     const nextCatalog = spec.field_catalog
       .filter((_, i) => i !== index)
       .map((f, i) => ({ ...f, col_pos: i + 1 }));
     onChange(nextCatalog);
+    setReorderNotice(`Field '${deletedName}' deleted. (COL_POS automatically re-indexed 1 to ${nextCatalog.length})`);
+    setTimeout(() => setReorderNotice(null), 3000);
   };
 
   // Update single field property with stable in-place mutation
@@ -261,6 +317,19 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
             <Plus className="w-3.5 h-3.5 text-slate-500" />
             <span>Add Field</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setEditingFieldIndex(null);
+              setShowSearchHelp(true);
+            }}
+            className="px-3 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-md transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
+            title="Open SAP Dictionary Search Help (F4) by module"
+          >
+            <Search className="w-3.5 h-3.5 text-blue-600" />
+            <span>Search Help (F4)</span>
+          </button>
         </div>
 
         {/* Right: View Mode Toggle & Mock Data */}
@@ -308,17 +377,17 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
       </div>
 
       {/* Helpful Drag-and-Drop Guide Banner */}
-      <div className="px-3 py-1.5 bg-blue-50/70 border border-blue-200 rounded-md text-[11px] text-blue-900 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-1.5">
-          <GripVertical className="w-3.5 h-3.5 text-blue-600" />
-          <span className="font-bold">Drag & Drop (Reorder):</span>
-          <span>
-            Drag the <strong>grip handle (⋮⋮)</strong> up or down to reorder fields.{' '}
-            <strong>`COL_POS` is automatically re-indexed from 1.</strong>
+      <div className="px-3.5 py-2 bg-gradient-to-r from-blue-50 to-indigo-50/60 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
+        <div className="flex items-center gap-2">
+          <GripVertical className="w-4 h-4 text-blue-600 shrink-0" />
+          <span className="font-bold">Reorder ALV Columns:</span>
+          <span className="text-blue-800">
+            Drag the <strong>grip handle (⋮⋮)</strong> up or down, or choose a number in the <strong>POS</strong> selector to easily change column positions.
+            All <strong>`COL_POS`</strong> values are automatically re-indexed from 1 to {spec.field_catalog.length}.
           </span>
         </div>
-        <span className="font-mono text-[10px] text-blue-700 bg-white px-2 py-0.5 rounded border border-blue-200">
-          Total {spec.field_catalog.length} fields
+        <span className="font-mono text-xs text-blue-700 bg-white px-2.5 py-0.5 rounded border border-blue-200 font-semibold shadow-2xs">
+          Total {spec.field_catalog.length} Columns
         </span>
       </div>
 
@@ -351,6 +420,8 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
               spec.field_catalog.map((field, idx) => {
                 const isDragging = draggedIndex === idx;
                 const isOver = dragOverIndex === idx;
+                const isDropTop = isOver && dragPosition === 'top';
+                const isDropBottom = isOver && dragPosition === 'bottom';
 
                 return (
                   <div
@@ -361,24 +432,43 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, idx)}
                     onDragEnd={handleDragEnd}
-                    className={`flex items-center justify-between p-2.5 rounded-lg border transition-all cursor-move select-none ${
+                    className={`flex items-center justify-between p-2.5 rounded-lg border transition-all cursor-move select-none relative ${
                       isDragging
                         ? 'opacity-40 bg-blue-50 border-2 border-dashed border-blue-500 shadow-md'
-                        : isOver
-                        ? 'bg-blue-50/80 border-blue-500 ring-2 ring-blue-400 ring-inset shadow-md'
+                        : isDropTop
+                        ? 'bg-blue-50/90 border-slate-200 border-t-4 border-t-blue-600 shadow-md'
+                        : isDropBottom
+                        ? 'bg-blue-50/90 border-slate-200 border-b-4 border-b-blue-600 shadow-md'
                         : 'bg-white hover:bg-slate-50 border-slate-200 shadow-2xs'
                     }`}
                   >
                     {/* Left: Drag Grip Handle & Sequence Info */}
                     <div className="flex items-center gap-3">
-                      <div className="p-1 text-slate-400 hover:text-slate-800 cursor-grab active:cursor-grabbing">
+                      <div
+                        title="Drag to reorder column"
+                        className="p-1 text-slate-400 hover:text-blue-700 cursor-grab active:cursor-grabbing"
+                      >
                         <GripVertical className="w-4 h-4" />
                       </div>
 
-                      {/* COL_POS Badge */}
-                      <span className="w-7 h-7 rounded-md bg-blue-100 text-blue-900 font-mono font-bold text-xs flex items-center justify-center border border-blue-200 shadow-2xs">
-                        {field.col_pos}
-                      </span>
+                      {/* COL_POS Badge & Selector */}
+                      <select
+                        value={field.col_pos}
+                        onChange={(e) => {
+                          const newPos = parseInt(e.target.value, 10);
+                          if (!isNaN(newPos) && newPos >= 1 && newPos <= spec.field_catalog.length) {
+                            handleReorder(idx, newPos - 1);
+                          }
+                        }}
+                        title="Change column position (COL_POS) directly"
+                        className="w-10 h-8 rounded-md bg-blue-100 hover:bg-blue-200 text-blue-900 font-mono font-bold text-xs border border-blue-200 shadow-2xs text-center cursor-pointer focus:bg-white focus:border-blue-500"
+                      >
+                        {spec.field_catalog.map((_, pIdx) => (
+                          <option key={pIdx + 1} value={pIdx + 1}>
+                            {pIdx + 1}
+                          </option>
+                        ))}
+                      </select>
 
                       {/* Field Identity */}
                       <div>
@@ -407,15 +497,15 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </div>
                         <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
                           <span>
-                            타입: {field.datatype}({field.outputlen})
+                            Type: {field.datatype}({field.outputlen})
                           </span>
                           <span>|</span>
-                          <span>정렬: {field.just}</span>
+                          <span>Align: {field.just}</span>
                           {field.ref_table && (
                             <>
                               <span>|</span>
                               <span>
-                                참조: {field.ref_table}-{field.ref_field}
+                                Ref: {field.ref_table}-{field.ref_field}
                               </span>
                             </>
                           )}
@@ -429,7 +519,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         type="button"
                         onClick={() => handleReorder(idx, 0)}
                         disabled={idx === 0}
-                        title="최상단으로 이동 (Move to Top)"
+                        title="Move to Top (COL_POS 1)"
                         className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
                       >
                         <ArrowUpToLine className="w-3.5 h-3.5" />
@@ -438,7 +528,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         type="button"
                         onClick={() => handleReorder(idx, idx - 1)}
                         disabled={idx === 0}
-                        title="한 칸 위로 이동 (Move Up)"
+                        title="Move Up (Auto-updates COL_POS)"
                         className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
                       >
                         <ArrowUp className="w-3.5 h-3.5" />
@@ -447,7 +537,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         type="button"
                         onClick={() => handleReorder(idx, idx + 1)}
                         disabled={idx === spec.field_catalog.length - 1}
-                        title="한 칸 아래로 이동 (Move Down)"
+                        title="Move Down (Auto-updates COL_POS)"
                         className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
                       >
                         <ArrowDown className="w-3.5 h-3.5" />
@@ -456,10 +546,19 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         type="button"
                         onClick={() => handleReorder(idx, spec.field_catalog.length - 1)}
                         disabled={idx === spec.field_catalog.length - 1}
-                        title="최하단으로 이동 (Move to Bottom)"
+                        title="Move to Bottom (COL_POS Last)"
                         className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
                       >
                         <ArrowDownToLine className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="h-4 w-px bg-slate-200 mx-0.5" />
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteField(idx)}
+                        title={`Delete field '${field.fieldname}' (Auto-updates COL_POS)`}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -479,10 +578,12 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="py-2.5 px-2 text-center w-8" title="Drag to reorder sequence">
+                  <th className="py-2.5 px-2 text-center w-8" title="Drag grip to reorder column sequence">
                     ↕
                   </th>
-                  <th className="py-2.5 px-2 text-center w-12">POS</th>
+                  <th className="py-2.5 px-2 text-center w-14" title="Column Position (COL_POS)">
+                    POS
+                  </th>
                   <th className="py-2.5 px-2 min-w-32">FIELDNAME</th>
                   <th className="py-2.5 px-2 min-w-36">COLTEXT</th>
                   <th className="py-2.5 px-2 w-24">Type</th>
@@ -523,7 +624,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                   <th className="py-2.5 px-2 w-24">Ref.Table</th>
                   <th className="py-2.5 px-2 w-24">Ref.Field</th>
                   <th className="py-2.5 px-2 w-24">T-Code</th>
-                  <th className="py-2.5 px-2 text-center w-24">Manage / Order</th>
+                  <th className="py-2.5 px-2 text-center w-36">Manage / Order</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
@@ -538,36 +639,65 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                     const stableKey = field.id || `fld-pos-${idx}`;
                     const isDragging = draggedIndex === idx;
                     const isOver = dragOverIndex === idx;
+                    const isDropTop = isOver && dragPosition === 'top';
+                    const isDropBottom = isOver && dragPosition === 'bottom';
+
+                    const cellDropClasses = isDropTop
+                      ? 'border-t-2 border-t-blue-600 bg-blue-50/70'
+                      : isDropBottom
+                      ? 'border-b-2 border-b-blue-600 bg-blue-50/70'
+                      : isDragging
+                      ? 'opacity-35 bg-slate-100'
+                      : '';
 
                     return (
                       <tr
                         key={stableKey}
-                        draggable={true}
-                        onDragStart={(e) => handleDragStart(e, idx)}
                         onDragOver={(e) => handleDragOver(e, idx)}
                         onDragLeave={handleDragLeave}
                         onDrop={(e) => handleDrop(e, idx)}
-                        onDragEnd={handleDragEnd}
                         className={`transition-colors ${
-                          isDragging
-                            ? 'opacity-40 bg-blue-50 border-2 border-dashed border-blue-500'
-                            : isOver
-                            ? 'bg-blue-100/70 border-t-2 border-b-2 border-blue-500'
-                            : 'hover:bg-slate-50'
+                          isDragging ? 'opacity-35 bg-slate-100' : 'hover:bg-slate-50/80'
                         }`}
                       >
                         {/* Drag Handle Column */}
-                        <td className="py-2 px-1 text-center cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-800">
-                          <GripVertical className="w-4 h-4 mx-auto" />
+                        <td className={`py-2 px-1 text-center ${cellDropClasses}`}>
+                          <div
+                            draggable={true}
+                            onDragStart={(e) => handleDragStart(e, idx)}
+                            onDragEnd={handleDragEnd}
+                            title="Drag grip to reorder column sequence (COL_POS)"
+                            className="p-1 inline-flex items-center justify-center rounded cursor-grab active:cursor-grabbing text-slate-400 hover:text-blue-700 hover:bg-blue-100/60 transition-colors select-none"
+                          >
+                            <GripVertical className="w-4 h-4 mx-auto" />
+                          </div>
                         </td>
 
                         {/* Position (col_pos) */}
-                        <td className="py-2 px-2 text-center text-blue-900 font-bold bg-slate-50/50">
-                          {field.col_pos}
+                        <td className={`py-1.5 px-1.5 text-center font-bold ${cellDropClasses}`}>
+                          <div className="flex items-center justify-center">
+                            <select
+                              value={field.col_pos}
+                              onChange={(e) => {
+                                const newPos = parseInt(e.target.value, 10);
+                                if (!isNaN(newPos) && newPos >= 1 && newPos <= spec.field_catalog.length) {
+                                  handleReorder(idx, newPos - 1);
+                                }
+                              }}
+                              title="Change column position (COL_POS) directly"
+                              className="bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:bg-white focus:border-blue-500 cursor-pointer text-center"
+                            >
+                              {spec.field_catalog.map((_, pIdx) => (
+                                <option key={pIdx + 1} value={pIdx + 1}>
+                                  {pIdx + 1}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </td>
 
                         {/* Fieldname */}
-                        <td className="py-1.5 px-2">
+                        <td className={`py-1.5 px-2 ${cellDropClasses}`}>
                           <input
                             type="text"
                             value={field.fieldname}
@@ -584,7 +714,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Coltext */}
-                        <td className="py-1.5 px-2 font-sans">
+                        <td className={`py-1.5 px-2 font-sans ${cellDropClasses}`}>
                           <input
                             type="text"
                             value={field.coltext}
@@ -594,7 +724,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Data Type */}
-                        <td className="py-1.5 px-2">
+                        <td className={`py-1.5 px-2 ${cellDropClasses}`}>
                           <select
                             value={field.datatype}
                             onChange={(e) => {
@@ -618,7 +748,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Output length */}
-                        <td className="py-1.5 px-2">
+                        <td className={`py-1.5 px-2 ${cellDropClasses}`}>
                           <input
                             type="number"
                             value={field.outputlen}
@@ -632,7 +762,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Justification (Just) */}
-                        <td className="py-1.5 px-2">
+                        <td className={`py-1.5 px-2 ${cellDropClasses}`}>
                           <select
                             value={field.just}
                             onChange={(e) =>
@@ -647,7 +777,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Color */}
-                        <td className="py-1.5 px-2">
+                        <td className={`py-1.5 px-2 ${cellDropClasses}`}>
                           <input
                             type="text"
                             value={field.emphasize || ''}
@@ -663,7 +793,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Key */}
-                        <td className="py-1.5 px-2 text-center">
+                        <td className={`py-1.5 px-2 text-center ${cellDropClasses}`}>
                           <input
                             type="checkbox"
                             checked={field.key}
@@ -673,7 +803,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Hotspot */}
-                        <td className="py-1.5 px-2 text-center">
+                        <td className={`py-1.5 px-2 text-center ${cellDropClasses}`}>
                           <input
                             type="checkbox"
                             checked={field.hotspot}
@@ -685,7 +815,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Checkbox */}
-                        <td className="py-1.5 px-2 text-center">
+                        <td className={`py-1.5 px-2 text-center ${cellDropClasses}`}>
                           <input
                             type="checkbox"
                             checked={field.checkbox}
@@ -697,7 +827,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Edit */}
-                        <td className="py-1.5 px-2 text-center">
+                        <td className={`py-1.5 px-2 text-center ${cellDropClasses}`}>
                           <input
                             type="checkbox"
                             checked={field.edit}
@@ -707,7 +837,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Do Sum */}
-                        <td className="py-1.5 px-2 text-center">
+                        <td className={`py-1.5 px-2 text-center ${cellDropClasses}`}>
                           <input
                             type="checkbox"
                             checked={field.datatype === 'CHAR' ? false : field.do_sum}
@@ -729,7 +859,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Ref Table */}
-                        <td className="py-1.5 px-2">
+                        <td className={`py-1.5 px-2 ${cellDropClasses}`}>
                           <input
                             type="text"
                             value={field.ref_table || ''}
@@ -742,20 +872,33 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Ref Field */}
-                        <td className="py-1.5 px-2">
-                          <input
-                            type="text"
-                            value={field.ref_field || ''}
-                            onChange={(e) =>
-                              handleUpdateField(idx, { ref_field: e.target.value.toUpperCase() })
-                            }
-                            placeholder="VBELN"
-                            className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
-                          />
+                        <td className={`py-1.5 px-2 ${cellDropClasses}`}>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={field.ref_field || ''}
+                              onChange={(e) =>
+                                handleUpdateField(idx, { ref_field: e.target.value.toUpperCase() })
+                              }
+                              placeholder="VBELN"
+                              className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase text-[10px]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingFieldIndex(idx);
+                                setShowSearchHelp(true);
+                              }}
+                              title="Search Help (F4)"
+                              className="p-1 text-slate-400 hover:text-blue-600 cursor-pointer"
+                            >
+                              <Search className="w-3 h-3" />
+                            </button>
+                          </div>
                         </td>
 
                         {/* Drilldown T-Code */}
-                        <td className="py-1.5 px-2">
+                        <td className={`py-1.5 px-2 ${cellDropClasses}`}>
                           <input
                             type="text"
                             value={field.drilldown_tcode || ''}
@@ -770,14 +913,23 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </td>
 
                         {/* Actions & Reordering Buttons */}
-                        <td className="py-1.5 px-2 text-center">
-                          <div className="flex items-center justify-center gap-1">
+                        <td className={`py-1.5 px-2 text-center ${cellDropClasses}`}>
+                          <div className="flex items-center justify-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => handleReorder(idx, 0)}
+                              disabled={idx === 0}
+                              title="Move to Top (COL_POS 1)"
+                              className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
+                            >
+                              <ArrowUpToLine className="w-3.5 h-3.5" />
+                            </button>
                             <button
                               type="button"
                               onClick={() => handleReorder(idx, idx - 1)}
                               disabled={idx === 0}
                               title="Move Up (Auto-updates COL_POS)"
-                              className="p-1 text-slate-400 hover:text-blue-700 disabled:opacity-20 cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
                             >
                               <ArrowUp className="w-3.5 h-3.5" />
                             </button>
@@ -786,15 +938,24 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                               onClick={() => handleReorder(idx, idx + 1)}
                               disabled={idx === spec.field_catalog.length - 1}
                               title="Move Down (Auto-updates COL_POS)"
-                              className="p-1 text-slate-400 hover:text-blue-700 disabled:opacity-20 cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
                             >
                               <ArrowDown className="w-3.5 h-3.5" />
                             </button>
                             <button
                               type="button"
+                              onClick={() => handleReorder(idx, spec.field_catalog.length - 1)}
+                              disabled={idx === spec.field_catalog.length - 1}
+                              title="Move to Bottom (COL_POS Last)"
+                              className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
+                            >
+                              <ArrowDownToLine className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleDeleteField(idx)}
                               title="Delete Field"
-                              className="p-1 text-slate-400 hover:text-red-600 cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer ml-0.5"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -809,6 +970,16 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
           </div>
         </div>
       )}
+
+      {/* SAP Search Help (F4) Modal */}
+      <SapSearchHelpModal
+        isOpen={showSearchHelp}
+        onClose={() => {
+          setShowSearchHelp(false);
+          setEditingFieldIndex(null);
+        }}
+        onSelect={handleSelectSearchHelp}
+      />
     </div>
   );
 };

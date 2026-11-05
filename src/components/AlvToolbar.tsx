@@ -1,4 +1,5 @@
 import React from 'react';
+import { Sparkles, Loader2 } from 'lucide-react';
 import { AlvToolbarButton, ProgramSpec } from '../types/sap';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 
@@ -22,6 +23,8 @@ interface AlvToolbarProps {
   onPrint: () => void;
   onInfo: () => void;
   onCustomAction?: (btn: AlvToolbarButton) => void;
+  onGenerateMockData?: () => void;
+  isGeneratingMockData?: boolean;
 }
 
 /**
@@ -299,6 +302,8 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
   onPrint,
   onInfo,
   onCustomAction,
+  onGenerateMockData,
+  isGeneratingMockData,
 }) => {
   const buttons: AlvToolbarButton[] = (spec.toolbar_buttons && spec.toolbar_buttons.length > 0)
     ? spec.toolbar_buttons
@@ -436,6 +441,26 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
             <span>필터: "{filterQuery}"</span>
             <button onClick={onClearFilter} className="font-bold hover:text-red-700 cursor-pointer">×</button>
           </div>
+        )}
+
+        {/* AI Generate Mock Data Quick Button in ALV Toolbar */}
+        {onGenerateMockData && (
+          <button
+            onClick={onGenerateMockData}
+            disabled={isGeneratingMockData}
+            title="Generate realistic SAP sample records with Gemini AI based on field catalog"
+            className="h-6 px-2 rounded flex items-center justify-center gap-1 border border-[#c0a662] shadow-2xs text-[10px] font-bold text-slate-800 hover:brightness-105 active:scale-95 cursor-pointer disabled:opacity-40 transition-all select-none"
+            style={{
+              background: 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)',
+            }}
+          >
+            {isGeneratingMockData ? (
+              <Loader2 className="w-3 h-3 animate-spin text-slate-700" />
+            ) : (
+              <Sparkles className="w-3 h-3 text-amber-700" />
+            )}
+            <span>{isGeneratingMockData ? 'Generating...' : 'Mock Data'}</span>
+          </button>
         )}
 
         {/* Dynamic Status (Sta.) Multi-Select Filter Buttons - Default: all selected */}

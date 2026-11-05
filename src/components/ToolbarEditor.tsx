@@ -31,8 +31,8 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
     const newBtn: AlvToolbarButton = {
       id: `btn-custom-${Date.now()}`,
       function: `FC0${nextIdx}`,
-      text: `기능버튼 ${nextIdx}`,
-      quickinfo: `사용자 정의 기능 ${nextIdx} 실행`,
+      text: `Custom Button ${nextIdx}`,
+      quickinfo: `Execute custom function ${nextIdx}`,
       icon: 'ICON_EXECUTE',
       disabled: false,
       visible: true,
@@ -43,7 +43,7 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
 
   // Reset to analyzed default toolbar buttons
   const handleResetDefaults = () => {
-    if (confirm('툴바 버튼을 캡처 이미지의 기본 16개 표준 버튼으로 초기화하시겠습니까?')) {
+    if (window.confirm('Reset toolbar buttons to the 16 standard SAP buttons?')) {
       onChange(DEFAULT_ALV_TOOLBAR_BUTTONS);
     }
   };

@@ -14,6 +14,8 @@ import {
   Table,
   Check,
   Plus,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { ProgramSpec, AlvField, SelectionParameter, AlvErrorLog } from '../types/sap';
 import { SapMultipleSelectionModal } from './SapMultipleSelectionModal';
@@ -110,6 +112,74 @@ export const getSapAlvCellStyle = (
   }
 };
 
+/**
+ * Intelligent deterministic SAP mock data generator
+ * Used as high-reliability fallback when offline or field types are updated
+ */
+const generateDeterministicSapMockRows = (fields: AlvField[], rowCount = 5): Record<string, any>[] => {
+  const result: Record<string, any>[] = [];
+  const partnerNames = [
+    '(주)삼성전자 수원공장',
+    '현대모비스 남양연구소',
+    'LG에너지솔루션 오창공장',
+    'SK하이닉스 이천캠퍼스',
+    '포스코 포항제철소',
+  ];
+  const amounts = [45000000, 38200000, 19800000, 52400000, 14500000];
+
+  for (let r = 0; r < rowCount; r++) {
+    const row: Record<string, any> = {};
+    fields.forEach((f) => {
+      const fn = f.fieldname.toUpperCase();
+      if (fn === 'ZICON' || fn === 'STATUS' || fn === 'LIGHTS') {
+        row[f.fieldname] = r === 2 ? '2' : r === 4 ? '3' : '1';
+      } else if (fn.includes('VBELN') || fn.includes('DOC_NO') || fn.includes('DOCNO')) {
+        row[f.fieldname] = `00100000${45 + r}`;
+      } else if (fn.includes('EBELN')) {
+        row[f.fieldname] = `450001928${r}`;
+      } else if (fn.includes('BELNR')) {
+        row[f.fieldname] = `100000001${r}`;
+      } else if (f.datatype === 'DATS' || fn.includes('DATE') || fn.includes('ERDAT') || fn.includes('BUDAT')) {
+        row[f.fieldname] = `2026.10.${String(10 + r * 3).padStart(2, '0')}`;
+      } else if (
+        f.datatype === 'CURR' ||
+        f.datatype === 'DEC' ||
+        fn.includes('AMOUNT') ||
+        fn.includes('NETWR') ||
+        fn.includes('DMBTR') ||
+        fn.includes('NETPR')
+      ) {
+        row[f.fieldname] = amounts[r % amounts.length];
+      } else if (
+        fn.includes('WAERK') ||
+        fn.includes('WAERS') ||
+        fn.includes('CURRENCY') ||
+        fn.includes('HWAER')
+      ) {
+        row[f.fieldname] = 'KRW';
+      } else if (
+        fn.includes('NAME') ||
+        fn.includes('PARTNER') ||
+        fn.includes('KUNNR') ||
+        fn.includes('LIFNR')
+      ) {
+        row[f.fieldname] = partnerNames[r % partnerNames.length];
+      } else if (fn.includes('MATNR')) {
+        row[f.fieldname] = `MAT-PART-00${r + 1}`;
+      } else if (fn.includes('MENGE') || fn.includes('KWMENG')) {
+        row[f.fieldname] = (r + 1) * 25;
+      } else if (fn.includes('MEINS') || fn.includes('VRKME')) {
+        row[f.fieldname] = 'EA';
+      } else if (f.datatype === 'NUMC') {
+        row[f.fieldname] = String(r + 1).padStart(f.outputlen || 4, '0');
+      } else {
+        row[f.fieldname] = `${f.coltext || f.fieldname} ${r + 1}`;
+      }
+    });
+    result.push(row);
+  }
+  return result;
+};
 
 export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }) => {
   // Screen mode: 'alv' (ALV 그리드 결과) or 'selection' (조회조건)
@@ -139,8 +209,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
       const next = exists ? prev.filter((k) => k !== statusKey) : [...prev, statusKey];
       setStatusMessage({
         text: exists
-          ? `상태 [${statusKey}] 필터 해제(숨김)되었습니다.`
-          : `상태 [${statusKey}] 필터 선택(출력)되었습니다.`,
+          ? `Status [${statusKey}] filter removed.`
+          : `Status [${statusKey}] filter applied.`,
         type: 'S',
       });
       return next;
@@ -155,7 +225,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
 
   // Status Bar message
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'S' | 'W' | 'E' }>({
-    text: `데이터 조회 완료 (${spec.mock_rows?.length || 0}건 출력됨)`,
+    text: `Data loaded (${spec.mock_rows?.length || 0} rows displayed)`,
     type: 'S',
   });
 
@@ -169,6 +239,72 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
     rowRecord: Record<string, any>;
   } | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState<boolean>(false);
+  const [isGeneratingMockData, setIsGeneratingMockData] = useState<boolean>(false);
+
+  // Generate realistic mock data using Gemini AI via server-side endpoint with smart fallback
+  const handleGenerateAiMockData = async () => {
+    if (!spec.field_catalog || spec.field_catalog.length === 0) {
+      setStatusMessage({
+        text: 'Warning: Field catalog is empty. Please configure fields first.',
+        type: 'W',
+      });
+      return;
+    }
+
+    setIsGeneratingMockData(true);
+    setStatusMessage({
+      text: 'Requesting Gemini AI to generate realistic SAP records...',
+      type: 'S',
+    });
+
+    try {
+      const response = await fetch('/api/generate-mock-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          field_catalog: spec.field_catalog,
+          module: spec.module,
+          title: spec.title,
+          business_purpose: spec.business_purpose,
+          count: 5,
+        }),
+      });
+
+      const data = await response.json();
+      if (data && Array.isArray(data.rows) && data.rows.length > 0) {
+        setRows(data.rows);
+        if (onUpdateSpec) {
+          onUpdateSpec({
+            ...spec,
+            mock_rows: data.rows,
+          });
+        }
+        setStatusMessage({
+          text: `Success: Generated ${data.rows.length} realistic SAP records via Gemini AI.`,
+          type: 'S',
+        });
+        return;
+      }
+      throw new Error(data?.error || 'Empty response from AI server');
+    } catch (err: any) {
+      console.warn('AI mock data generation fallback:', err);
+      // Deterministic realistic SAP fallback based on field catalog
+      const fallbackRows = generateDeterministicSapMockRows(spec.field_catalog, 5);
+      setRows(fallbackRows);
+      if (onUpdateSpec) {
+        onUpdateSpec({
+          ...spec,
+          mock_rows: fallbackRows,
+        });
+      }
+      setStatusMessage({
+        text: `Populated ${fallbackRows.length} realistic SAP records based on field catalog types.`,
+        type: 'S',
+      });
+    } finally {
+      setIsGeneratingMockData(false);
+    }
+  };
 
   // Sync rows when spec changes
   React.useEffect(() => {
@@ -457,6 +593,23 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
               <Check className="w-4 h-4 text-emerald-600 font-extrabold absolute -top-0.5 -right-0.5 drop-shadow-xs" strokeWidth={3.5} />
             </div>
           </button>
+
+          {/* AI-powered Generate Mock Data Button */}
+          {screenMode === 'alv' && (
+            <button
+              onClick={handleGenerateAiMockData}
+              disabled={isGeneratingMockData}
+              title="Populate table with realistic SAP sample records using Gemini AI based on defined field types"
+              className="px-2.5 py-1 text-[11px] font-bold rounded bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-600 hover:to-indigo-600 text-white shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 border border-blue-800"
+            >
+              {isGeneratingMockData ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              )}
+              <span>{isGeneratingMockData ? 'Generating Mock Data...' : 'Generate Mock Data'}</span>
+            </button>
+          )}
         </div>
 
         {/* View Switcher: Selection vs ALV Grid */}
@@ -496,7 +649,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
           onOpenDetail={() => setIsDetailModalOpen(true)}
           onSort={(asc) => handleSort(sortField || spec.field_catalog[2]?.fieldname || 'SET_NAME', asc)}
           onFilter={() => {
-            const q = prompt('ALV 필터링할 검색어를 입력하세요:', filterQuery);
+            const q = prompt('Enter search filter for ALV Grid:', filterQuery);
             if (q !== null) setFilterQuery(q);
           }}
           filterQuery={filterQuery}
@@ -506,16 +659,18 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
           onPrint={() => window.print()}
           onInfo={() =>
             setStatusMessage({
-              text: `프로그램 ID: ${spec.program_id} | 트랜잭션: ${spec.tcode} | 작성자: ${spec.author} | 모듈: ${spec.module}`,
+              text: `Program ID: ${spec.program_id} | T-Code: ${spec.tcode} | Author: ${spec.author} | Module: ${spec.module}`,
               type: 'S',
             })
           }
           onCustomAction={(btn) => {
             setStatusMessage({
-              text: `버튼 [${btn.text}] (${btn.function}) 실행됨`,
+              text: `Button [${btn.text}] (${btn.function}) executed`,
               type: 'S',
             });
           }}
+          onGenerateMockData={handleGenerateAiMockData}
+          isGeneratingMockData={isGeneratingMockData}
         />
       )}
 
@@ -640,8 +795,17 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                       <tbody className="divide-y divide-slate-200">
                         {displayedRows.length === 0 ? (
                           <tr>
-                            <td colSpan={spec.field_catalog.length + 1} className="py-8 text-center text-slate-400">
-                              헤더 데이터가 없습니다.
+                            <td colSpan={spec.field_catalog.length + 1} className="py-8 text-center text-slate-500">
+                              <p className="mb-2">No header data available.</p>
+                              <button
+                                type="button"
+                                onClick={handleGenerateAiMockData}
+                                disabled={isGeneratingMockData}
+                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                <span>Generate Mock Data</span>
+                              </button>
                             </td>
                           </tr>
                         ) : (
@@ -986,8 +1150,17 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                   <tbody className="divide-y divide-slate-200">
                     {displayedRows.length === 0 ? (
                       <tr>
-                        <td colSpan={spec.field_catalog.length + 1} className="py-12 text-center text-slate-400">
-                          데이터가 없습니다. (툴바 신호등 필터 상태를 확인하세요)
+                        <td colSpan={spec.field_catalog.length + 1} className="py-12 text-center text-slate-500">
+                          <p className="mb-2">No records found matching filters.</p>
+                          <button
+                            type="button"
+                            onClick={handleGenerateAiMockData}
+                            disabled={isGeneratingMockData}
+                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                            <span>Generate Mock Data</span>
+                          </button>
                         </td>
                       </tr>
                     ) : (

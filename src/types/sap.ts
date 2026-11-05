@@ -187,4 +187,28 @@ export interface ProgramSpec {
   item_grid?: SubAlvGridConfig; // For Master-Detail ALV (sample_type === '02')
 }
 
+export type TemplateCategory = 'Single-Table' | 'Header-Detail' | 'OData-based' | 'Interface / Batch' | 'Custom';
+
+export interface PredefinedTemplate {
+  id: string;
+  name: string;
+  category: TemplateCategory;
+  description: string;
+  module: SapModule;
+  author?: string;
+  target_release?: string;
+  tags: string[];
+  spec: ProgramSpec;
+}
+
+export interface SavedUserTemplate {
+  id: string;
+  name: string;
+  category: TemplateCategory;
+  description: string;
+  module: SapModule;
+  savedAt: string;
+  spec: ProgramSpec;
+}
+
 

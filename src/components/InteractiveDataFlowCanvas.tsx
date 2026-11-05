@@ -16,6 +16,8 @@ import {
   Check,
   Move,
   Link2,
+  X,
+  Maximize2,
 } from 'lucide-react';
 import {
   CanvasNode,
@@ -57,10 +59,10 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
-  const [editingText, setEditingText] = useState('');
-  const [editingEdgeLabel, setEditingEdgeLabel] = useState('');
+
+  // Dedicated Modals for Editing Node & Edge properties
+  const [editingNode, setEditingNode] = useState<CanvasNode | null>(null);
+  const [editingEdge, setEditingEdge] = useState<CanvasEdge | null>(null);
 
   // Dragging node state
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
@@ -85,6 +87,25 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
 
   const canvasRef = useRef<SVGSVGElement>(null);
 
+  // Auto-fit node width and height based on text content
+  const autoFitNode = useCallback((node: CanvasNode): CanvasNode => {
+    const lines = node.label.split('\n');
+    const maxLineLen = Math.max(...lines.map((l) => l.length), 4);
+    const isDb = node.type === 'database';
+    const isDecision = node.type === 'decision';
+
+    const newWidth = Math.max(
+      isDecision ? 120 : isDb ? 120 : 110,
+      Math.min(320, maxLineLen * (isDb ? 8.5 : 8) + 30)
+    );
+    const newHeight = Math.max(
+      isDecision ? 48 : isDb ? 60 : 38,
+      lines.length * 16 + (isDb ? 34 : 18)
+    );
+
+    return { ...node, width: Math.round(newWidth), height: Math.round(newHeight) };
+  }, []);
+
   // Save changes to parent spec
   const updateGraph = useCallback(
     (newNodes: CanvasNode[], newEdges: CanvasEdge[]) => {
@@ -95,6 +116,41 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
       });
     },
     [config?.title, onChange]
+  );
+
+  const handleSaveNode = useCallback(
+    (updatedNode: CanvasNode) => {
+      const updated = nodes.map((n) => (n.id === updatedNode.id ? updatedNode : n));
+      updateGraph(updated, edges);
+      setNotice(`Node '${updatedNode.label.split('\n')[0]}' updated.`);
+      setTimeout(() => setNotice(null), 3000);
+    },
+    [nodes, edges, updateGraph]
+  );
+
+  const handleDeleteNode = useCallback(
+    (nodeId: string) => {
+      const updatedNodes = nodes.filter((n) => n.id !== nodeId);
+      const updatedEdges = edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
+      updateGraph(updatedNodes, updatedEdges);
+      if (selectedNodeId === nodeId) setSelectedNodeId(null);
+      setNotice('Node and connected arrows deleted.');
+      setTimeout(() => setNotice(null), 3000);
+    },
+    [nodes, edges, selectedNodeId, updateGraph]
+  );
+
+  const handleAutoFitNode = useCallback(
+    (nodeId: string) => {
+      const targetNode = nodes.find((n) => n.id === nodeId);
+      if (!targetNode) return;
+      const fitted = autoFitNode(targetNode);
+      const updated = nodes.map((n) => (n.id === nodeId ? fitted : n));
+      updateGraph(updated, edges);
+      setNotice(`Auto-fitted size for '${fitted.label.split('\n')[0]}'.`);
+      setTimeout(() => setNotice(null), 3000);
+    },
+    [nodes, edges, autoFitNode, updateGraph]
   );
 
   // Get port coordinates for a node
@@ -239,6 +295,7 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
 
     updateGraph([...nodes, newNode], edges);
     setSelectedNodeId(newNode.id);
+    setEditingNode(newNode);
   };
 
   // Start dragging a node
@@ -358,7 +415,7 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
   // Keyboard shortcut for Delete
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (editingNodeId || editingEdgeId) return;
+      if (editingNode || editingEdge) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedNodeId || selectedEdgeId) {
           handleDeleteSelected();
@@ -367,7 +424,7 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, selectedEdgeId, editingNodeId, editingEdgeId, handleDeleteSelected]);
+  }, [selectedNodeId, selectedEdgeId, editingNode, editingEdge, handleDeleteSelected]);
 
   // Load Reference Template
   const handleLoadReferenceTemplate = () => {
@@ -592,8 +649,8 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
         onClick={() => {
           setSelectedNodeId(null);
           setSelectedEdgeId(null);
-          setEditingNodeId(null);
-          setEditingEdgeId(null);
+          setEditingNode(null);
+          setEditingEdge(null);
         }}
       >
         <svg
@@ -659,6 +716,10 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
                   setSelectedEdgeId(edge.id);
                   setSelectedNodeId(null);
                 }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  setEditingEdge(edge);
+                }}
                 className="cursor-pointer group"
               >
                 {/* Thick invisible stroke for easier clicking */}
@@ -669,7 +730,7 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
                   d={pathData}
                   fill="none"
                   stroke={isSelected ? '#2563eb' : '#0f172a'}
-                  strokeWidth={isSelected ? '2.2' : '1.3'}
+                  strokeWidth={isSelected ? '2.4' : '1.3'}
                   markerEnd={isSelected ? 'url(#canvas-arrow-selected)' : 'url(#canvas-arrow)'}
                 />
 
@@ -695,6 +756,23 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
                       fill={isSelected ? '#1d4ed8' : '#334155'}
                     >
                       {edge.label}
+                    </text>
+                  </g>
+                )}
+
+                {/* Quick Edit Chip for selected edge */}
+                {isSelected && !readOnly && (
+                  <g
+                    transform={`translate(${labelPos.x}, ${labelPos.y - (edge.label ? 20 : 12)})`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingEdge(edge);
+                    }}
+                    className="cursor-pointer hover:opacity-90"
+                  >
+                    <rect x="-35" y="-10" width="70" height="20" rx="4" fill="#0f172a" fillOpacity="0.9" />
+                    <text x="0" y="3.5" fill="#ffffff" fontSize="9.5" textAnchor="middle" fontWeight="bold">
+                      ✏️ Edit Arrow
                     </text>
                   </g>
                 )}
@@ -734,8 +812,7 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
                 onMouseLeave={() => setHoveredNodeId(null)}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
-                  setEditingNodeId(node.id);
-                  setEditingText(node.label);
+                  setEditingNode(node);
                 }}
                 className="cursor-move group"
               >
@@ -818,7 +895,7 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
                   />
                 )}
 
-                {/* Node Label Text (support multiline for DB tables) */}
+                {/* Node Label Text (support multiline for DB tables and detailed logic) */}
                 {node.label.split('\n').map((line, idx, arr) => {
                   const lineOffset = (idx - (arr.length - 1) / 2) * 14;
                   return (
@@ -837,6 +914,52 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
                     </text>
                   );
                 })}
+
+                {/* Quick Action Toolbar directly above selected node */}
+                {isSelected && !readOnly && (
+                  <g transform={`translate(${Math.max(0, (node.width - 105) / 2)}, -26)`} className="cursor-pointer">
+                    <rect x="0" y="0" width="105" height="22" rx="4" fill="#0f172a" fillOpacity="0.9" />
+                    {/* Edit Button */}
+                    <g
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingNode(node);
+                      }}
+                      className="hover:opacity-85"
+                    >
+                      <rect x="2" y="2" width="31" height="18" rx="3" fill="#2563eb" />
+                      <text x="17.5" y="14" fill="#ffffff" fontSize="9.5" textAnchor="middle" fontWeight="bold">
+                        Edit
+                      </text>
+                    </g>
+                    {/* Auto-Fit Button */}
+                    <g
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAutoFitNode(node.id);
+                      }}
+                      className="hover:opacity-85"
+                    >
+                      <rect x="35" y="2" width="31" height="18" rx="3" fill="#475569" />
+                      <text x="50.5" y="14" fill="#ffffff" fontSize="9.5" textAnchor="middle" fontWeight="bold">
+                        Fit
+                      </text>
+                    </g>
+                    {/* Delete Button */}
+                    <g
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteNode(node.id);
+                      }}
+                      className="hover:opacity-85"
+                    >
+                      <rect x="68" y="2" width="35" height="18" rx="3" fill="#ef4444" />
+                      <text x="85.5" y="14" fill="#ffffff" fontSize="9.5" textAnchor="middle" fontWeight="bold">
+                        Del
+                      </text>
+                    </g>
+                  </g>
+                )}
 
                 {/* Connection Anchor Ports (4 visible points on hover / selection to connect arrows!) */}
                 {(isSelected || isHovered || isConnecting) && !readOnly && (
@@ -891,109 +1014,293 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
             );
           })}
         </svg>
-
-        {/* Floating Node Editor Popover when node is selected */}
-        {selectedNodeId && !readOnly && (
-          <div className="absolute bottom-3 left-3 bg-white border border-slate-300 rounded-lg shadow-lg p-3 text-xs space-y-2 z-20 w-80">
-            {(() => {
-              const selNode = nodes.find((n) => n.id === selectedNodeId);
-              if (!selNode) return null;
-              return (
-                <>
-                  <div className="flex items-center justify-between font-bold text-slate-800 border-b pb-1.5">
-                    <span>도형 속성 편집</span>
-                    <button
-                      type="button"
-                      onClick={handleDeleteSelected}
-                      className="text-red-600 hover:text-red-800 flex items-center gap-1 text-[11px]"
-                    >
-                      <Trash2 className="w-3 h-3" /> 삭제
-                    </button>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      라벨 텍스트:
-                    </label>
-                    <textarea
-                      rows={selNode.type === 'database' ? 3 : 2}
-                      value={selNode.label}
-                      onChange={(e) => {
-                        const updated = nodes.map((n) =>
-                          n.id === selNode.id ? { ...n, label: e.target.value } : n
-                        );
-                        updateGraph(updated, edges);
-                      }}
-                      className="w-full p-1.5 border border-slate-300 rounded text-xs font-semibold focus:border-blue-500"
-                      placeholder="도형 텍스트 입력 (줄바꿈 가능)"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-slate-500">도형 유형:</span>
-                    <select
-                      value={selNode.type}
-                      onChange={(e) => {
-                        const newType = e.target.value as FlowShapeType;
-                        const updated = nodes.map((n) =>
-                          n.id === selNode.id ? { ...n, type: newType } : n
-                        );
-                        updateGraph(updated, edges);
-                      }}
-                      className="px-1.5 py-0.5 border border-slate-300 rounded text-xs"
-                    >
-                      <option value="start">시작 (Start)</option>
-                      <option value="process">박스 (Process)</option>
-                      <option value="decision">처리 옵션 (Decision)</option>
-                      <option value="database">DB 실린더 (Database)</option>
-                      <option value="end">종료 (End)</option>
-                    </select>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        )}
-
-        {/* Floating Edge Editor Popover when edge is selected */}
-        {selectedEdgeId && !readOnly && (
-          <div className="absolute bottom-3 right-3 bg-white border border-slate-300 rounded-lg shadow-lg p-3 text-xs space-y-2 z-20 w-72">
-            {(() => {
-              const selEdge = edges.find((e) => e.id === selectedEdgeId);
-              if (!selEdge) return null;
-              return (
-                <>
-                  <div className="flex items-center justify-between font-bold text-slate-800 border-b pb-1.5">
-                    <span>화살표(연결선) 편집</span>
-                    <button
-                      type="button"
-                      onClick={handleDeleteSelected}
-                      className="text-red-600 hover:text-red-800 flex items-center gap-1 text-[11px]"
-                    >
-                      <Trash2 className="w-3 h-3" /> 삭제
-                    </button>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      분기 라벨 (조건명):
-                    </label>
-                    <input
-                      type="text"
-                      value={selEdge.label || ''}
-                      onChange={(e) => {
-                        const updated = edges.map((ed) =>
-                          ed.id === selEdge.id ? { ...ed, label: e.target.value } : ed
-                        );
-                        updateGraph(nodes, updated);
-                      }}
-                      className="w-full p-1.5 border border-slate-300 rounded text-xs font-semibold focus:border-blue-500"
-                      placeholder="예: 조회, 생성, 성공, 실패, Yes, No"
-                    />
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* 3. DEDICATED NODE EDIT MODAL                                              */}
+      {/* ========================================================================= */}
+      {editingNode && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150 font-sans"
+          onClick={() => setEditingNode(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-blue-400" />
+                <h3 className="text-sm font-bold">Edit Flowchart Node</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingNode(null)}
+                className="text-slate-400 hover:text-white p-1 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 text-xs">
+              {/* Shape Type Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Node Shape & Role
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { type: 'start', label: 'Start (Capsule)', icon: Play },
+                    { type: 'process', label: 'Process Box', icon: Square },
+                    { type: 'decision', label: 'Decision (Diamond)', icon: HelpCircle },
+                    { type: 'database', label: 'DB Table (Cylinder)', icon: Database },
+                    { type: 'end', label: 'End (Capsule)', icon: Square },
+                  ].map((item) => (
+                    <button
+                      key={item.type}
+                      type="button"
+                      onClick={() =>
+                        setEditingNode({ ...editingNode, type: item.type as FlowShapeType })
+                      }
+                      className={`p-2 rounded-lg border text-left flex items-center gap-2 transition-all cursor-pointer ${
+                        editingNode.type === item.type
+                          ? 'border-blue-600 bg-blue-50 text-blue-900 font-bold ring-2 ring-blue-300'
+                          : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <item.icon className="w-3.5 h-3.5 shrink-0 text-slate-600" />
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Node Label Text */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    Node Label (Text Content)
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-normal">
+                    Enter for new line
+                  </span>
+                </div>
+                <textarea
+                  rows={editingNode.type === 'database' ? 4 : 3}
+                  value={editingNode.label}
+                  onChange={(e) => setEditingNode({ ...editingNode, label: e.target.value })}
+                  placeholder="Enter step label or DB table names..."
+                  className={`w-full p-2.5 border border-slate-300 rounded-lg text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
+                    editingNode.type === 'database' ? 'font-mono uppercase font-bold' : 'font-medium'
+                  }`}
+                  autoFocus
+                />
+              </div>
+
+              {/* Dimensions and Auto-Fit */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    Dimensions (Width × Height)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fitted = autoFitNode(editingNode);
+                      setEditingNode(fitted);
+                    }}
+                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-0.5 rounded border border-blue-200 cursor-pointer flex items-center gap-1"
+                  >
+                    <Maximize2 className="w-3 h-3" />
+                    <span>Auto-Fit Size to Text</span>
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[11px] text-slate-500">Width (px):</span>
+                    <input
+                      type="number"
+                      value={editingNode.width}
+                      min={70}
+                      max={450}
+                      onChange={(e) =>
+                        setEditingNode({ ...editingNode, width: Math.max(60, Number(e.target.value)) })
+                      }
+                      className="w-full mt-1 p-1.5 border border-slate-300 rounded font-mono text-center"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500">Height (px):</span>
+                    <input
+                      type="number"
+                      value={editingNode.height}
+                      min={30}
+                      max={350}
+                      onChange={(e) =>
+                        setEditingNode({ ...editingNode, height: Math.max(30, Number(e.target.value)) })
+                      }
+                      className="w-full mt-1 p-1.5 border border-slate-300 rounded font-mono text-center"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SAP Event Tag (Optional) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  SAP Event Tag / Notes (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={editingNode.description || ''}
+                  onChange={(e) => setEditingNode({ ...editingNode, description: e.target.value })}
+                  placeholder="e.g. INITIALIZATION, AT SELECTION-SCREEN, START-OF-SELECTION"
+                  className="w-full p-2 border border-slate-300 rounded text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  handleDeleteNode(editingNode.id);
+                  setEditingNode(null);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Node</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingNode(null)}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 bg-white border border-slate-300 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSaveNode(editingNode);
+                    setEditingNode(null);
+                  }}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm cursor-pointer"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. DEDICATED EDGE / ARROW EDIT MODAL                                      */}
+      {/* ========================================================================= */}
+      {editingEdge && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150 font-sans"
+          onClick={() => setEditingEdge(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ArrowRight className="w-4 h-4 text-blue-400" />
+                <h3 className="text-sm font-bold">Edit Connection Arrow</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingEdge(null)}
+                className="text-slate-400 hover:text-white p-1 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 text-xs">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Branch Label (Condition Text)
+                </label>
+                <input
+                  type="text"
+                  value={editingEdge.label || ''}
+                  onChange={(e) => setEditingEdge({ ...editingEdge, label: e.target.value })}
+                  placeholder="e.g. Query, Create, Success, Fail, Yes, No"
+                  className="w-full p-2 border border-slate-300 rounded text-xs font-semibold focus:border-blue-500"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <span className="block text-[11px] text-slate-500 mb-1 font-semibold">
+                  Quick Preset Labels:
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {['Query', 'Create', 'Success', 'Fail', 'Yes', 'No', 'Retry', 'Exit', 'Cancel'].map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => setEditingEdge({ ...editingEdge, label: tag })}
+                      className="px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 border border-slate-200 text-[11px] cursor-pointer"
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const updatedEdges = edges.filter((e) => e.id !== editingEdge.id);
+                  updateGraph(nodes, updatedEdges);
+                  setEditingEdge(null);
+                  setSelectedEdgeId(null);
+                }}
+                className="px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-red-800 hover:bg-red-50 rounded flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Arrow</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingEdge(null)}
+                  className="px-3 py-1 text-xs text-slate-600 hover:text-slate-800 bg-white border border-slate-300 rounded cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updatedEdges = edges.map((e) =>
+                      e.id === editingEdge.id ? { ...e, label: editingEdge.label } : e
+                    );
+                    updateGraph(nodes, updatedEdges);
+                    setEditingEdge(null);
+                  }}
+                  className="px-3.5 py-1 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs cursor-pointer"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -111,6 +111,151 @@ ${business_purpose}
   }
 });
 
+// API endpoint: Generate realistic SAP ALV mock data records using Gemini model
+app.post('/api/generate-mock-data', async (req, res) => {
+  try {
+    const { field_catalog, module, title, business_purpose, count = 5 } = req.body || {};
+
+    if (!Array.isArray(field_catalog) || field_catalog.length === 0) {
+      return res.status(400).json({ error: '필드 카탈로그 정보가 없습니다.' });
+    }
+
+    const fieldDescriptions = field_catalog.map((f: any) => ({
+      fieldname: f.fieldname,
+      coltext: f.coltext,
+      datatype: f.datatype,
+      length: f.outputlen || 10,
+      ref_table: f.ref_table || '',
+      ref_field: f.ref_field || '',
+    }));
+
+    const systemPrompt = `You are a specialized SAP ERP data generator.
+Generate realistic mock data records for an SAP ALV Grid report based on the provided field catalog.
+Rules for SAP ALV fields:
+1. Status fields (e.g., ZICON, STATUS, LIGHTS): output '1' (Normal green), '2' (Warning yellow), or '3' (Error red).
+2. Document numbers (e.g., VBELN, DOC_NO, EBELN, BELNR): realistic 10-digit SAP numbers (e.g., '0010000045', '4500019280').
+3. Date fields (DATS): format as 'YYYY.MM.DD' (e.g., '2026.10.15').
+4. Currency / numeric amounts (CURR, DEC, INT4): realistic integers or floating values (e.g., 45000000, 38200000).
+5. Currency keys (e.g., WAERK, CURRENCY, WAERS): standard SAP currency ISO codes ('KRW', 'USD', 'EUR').
+6. Partner / Customer names: realistic corporate or supplier names (e.g. '(주)삼성전자 수원공장', '현대모비스 남양연구소', 'LG에너지솔루션').
+7. Quantities (MENGE, KWMENG): realistic quantities (e.g. 100, 50, 250).
+8. Units (VRKME, MEINS): standard units ('EA', 'KG', 'BOX', 'ST').
+9. Keep character strings within the specified length.
+
+Return a JSON array of ${Math.min(Math.max(Number(count) || 5, 3), 10)} objects, where each object has keys exactly matching the fieldnames in the field catalog.`;
+
+    const userPrompt = `Program Context:
+- Title: ${title || 'SAP ALV Grid Report'}
+- Module: ${module || 'SD'}
+- Business Purpose: ${business_purpose || 'General ALV Grid'}
+
+Field Catalog to populate:
+${JSON.stringify(fieldDescriptions, null, 2)}
+
+Generate ${Math.min(Math.max(Number(count) || 5, 3), 10)} realistic SAP records as a JSON array.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: userPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const rawText = response.text?.trim() || '[]';
+    let parsedRows: any[] = [];
+    try {
+      const parsed = JSON.parse(rawText);
+      if (Array.isArray(parsed)) {
+        parsedRows = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        const values = Object.values(parsed);
+        const arrayVal = values.find((v) => Array.isArray(v));
+        if (arrayVal) parsedRows = arrayVal as any[];
+      }
+    } catch (parseErr) {
+      console.warn('JSON parse fallback for mock data', parseErr);
+    }
+
+    if (!parsedRows || parsedRows.length === 0) {
+      parsedRows = generateFallbackSapRows(field_catalog, Number(count) || 5);
+    }
+
+    return res.json({ rows: parsedRows });
+  } catch (error: any) {
+    console.warn('Gemini API temporary issue, using intelligent SAP fallback generator:', error?.message);
+    const fallbackRows = generateFallbackSapRows(req.body?.field_catalog || [], Number(req.body?.count) || 5);
+    return res.json({ rows: fallbackRows, fallback: true });
+  }
+});
+
+// Helper: Intelligent deterministic SAP mock data generator
+function generateFallbackSapRows(fields: any[], rowCount = 5): Record<string, any>[] {
+  const result: Record<string, any>[] = [];
+  const partnerNames = [
+    '(주)삼성전자 수원공장',
+    '현대모비스 남양연구소',
+    'LG에너지솔루션 오창공장',
+    'SK하이닉스 이천캠퍼스',
+    '포스코 포항제철소',
+  ];
+  const amounts = [45000000, 38200000, 19800000, 52400000, 14500000];
+
+  for (let r = 0; r < rowCount; r++) {
+    const row: Record<string, any> = {};
+    fields.forEach((f: any) => {
+      const fn = String(f.fieldname || '').toUpperCase();
+      if (fn === 'ZICON' || fn === 'STATUS' || fn === 'LIGHTS') {
+        row[f.fieldname] = r === 2 ? '2' : r === 4 ? '3' : '1';
+      } else if (fn.includes('VBELN') || fn.includes('DOC_NO') || fn.includes('DOCNO')) {
+        row[f.fieldname] = `00100000${45 + r}`;
+      } else if (fn.includes('EBELN')) {
+        row[f.fieldname] = `450001928${r}`;
+      } else if (fn.includes('BELNR')) {
+        row[f.fieldname] = `100000001${r}`;
+      } else if (f.datatype === 'DATS' || fn.includes('DATE') || fn.includes('ERDAT') || fn.includes('BUDAT')) {
+        row[f.fieldname] = `2026.10.${String(10 + r * 3).padStart(2, '0')}`;
+      } else if (
+        f.datatype === 'CURR' ||
+        f.datatype === 'DEC' ||
+        fn.includes('AMOUNT') ||
+        fn.includes('NETWR') ||
+        fn.includes('DMBTR') ||
+        fn.includes('NETPR')
+      ) {
+        row[f.fieldname] = amounts[r % amounts.length];
+      } else if (
+        fn.includes('WAERK') ||
+        fn.includes('WAERS') ||
+        fn.includes('CURRENCY') ||
+        fn.includes('HWAER')
+      ) {
+        row[f.fieldname] = 'KRW';
+      } else if (
+        fn.includes('NAME') ||
+        fn.includes('PARTNER') ||
+        fn.includes('KUNNR') ||
+        fn.includes('LIFNR')
+      ) {
+        row[f.fieldname] = partnerNames[r % partnerNames.length];
+      } else if (fn.includes('MATNR')) {
+        row[f.fieldname] = `MAT-PART-00${r + 1}`;
+      } else if (fn.includes('MENGE') || fn.includes('KWMENG')) {
+        row[f.fieldname] = (r + 1) * 25;
+      } else if (fn.includes('MEINS') || fn.includes('VRKME')) {
+        row[f.fieldname] = 'EA';
+      } else if (f.datatype === 'NUMC') {
+        row[f.fieldname] = String(r + 1).padStart(f.outputlen || 4, '0');
+      } else {
+        row[f.fieldname] = `${f.coltext || f.fieldname} ${r + 1}`;
+      }
+    });
+    result.push(row);
+  }
+  return result;
+}
+
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(process.cwd(), 'dist')));

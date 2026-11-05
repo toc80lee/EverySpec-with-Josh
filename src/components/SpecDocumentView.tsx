@@ -58,18 +58,18 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
   const pageDefinitions = useMemo(() => {
     if (isMasterDetail) {
       return [
-        { page: 1, title: '표지 & 개요', sub: '기본 정보 · 결재선 · 개정이력' },
-        { page: 2, title: '선택화면 & 헤더 ALV', sub: 'Selection Screen · Header FCAT' },
-        { page: 3, title: '품목 ALV 명세', sub: 'Item Grid FCAT · 외래키(VBELN)' },
-        { page: 4, title: '로직 & 흐름도', sub: '추출/가공 로직 · Data Flow Diagram' },
-        { page: 5, title: '테스트 & 모의출력', sub: '검증 시나리오 · ALV Mock Data' },
+        { page: 1, title: 'Cover & Overview', sub: 'Basic Info · Approval · Revision' },
+        { page: 2, title: 'Selection Screen & Header ALV', sub: 'Selection Screen · Header FCAT' },
+        { page: 3, title: 'Item ALV Grid Spec', sub: 'Item Grid FCAT · Foreign Key (VBELN)' },
+        { page: 4, title: 'Logic & Flowchart', sub: 'Extraction Logic · Data Flow Diagram' },
+        { page: 5, title: 'Test Cases & Mock Preview', sub: 'Test Scenarios · ALV Mock Data' },
       ];
     }
     return [
-      { page: 1, title: '표지 & 개요', sub: '기본 정보 · 결재선 · 개정이력' },
-      { page: 2, title: '화면 & 필드 카탈로그', sub: '선택화면 · ALV LVC_T_FCAT · 툴바' },
-      { page: 3, title: '로직 & 흐름도', sub: '추출/가공 로직 · Data Flow Diagram' },
-      { page: 4, title: '테스트 & 모의출력', sub: '검증 시나리오 · ALV Mock Data' },
+      { page: 1, title: 'Cover & Overview', sub: 'Basic Info · Approval · Revision' },
+      { page: 2, title: 'Screen & Field Catalog', sub: 'Selection Screen · ALV FCAT · Toolbar' },
+      { page: 3, title: 'Logic & Flowchart', sub: 'Extraction Logic · Data Flow Diagram' },
+      { page: 4, title: 'Test Cases & Mock Preview', sub: 'Test Scenarios · ALV Mock Data' },
     ];
   }, [isMasterDetail]);
 

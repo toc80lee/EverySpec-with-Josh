@@ -22,6 +22,7 @@ import {
   Layers,
   Printer,
   X,
+  Search,
 } from 'lucide-react';
 import {
   ProgramSpec,
@@ -38,6 +39,7 @@ import { FieldCatalogEditor } from './FieldCatalogEditor';
 import { SelectionScreenEditor } from './SelectionScreenEditor';
 import { ToolbarEditor } from './ToolbarEditor';
 import { DataFlowEditor } from './DataFlowEditor';
+import { SapSearchHelpModal } from './SapSearchHelpModal';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 import { SAMPLE_SPECS } from '../data/sampleSpecs';
 import { useVoiceInput } from '../hooks/useVoiceInput';
@@ -49,9 +51,15 @@ interface SpecEditorProps {
   spec: ProgramSpec;
   onChange: (updated: ProgramSpec) => void;
   onTriggerPrint?: () => void;
+  onOpenTemplates?: () => void;
 }
 
-export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTriggerPrint }) => {
+export const SpecEditor: React.FC<SpecEditorProps> = ({
+  spec,
+  onChange,
+  onTriggerPrint,
+  onOpenTemplates,
+}) => {
   // Main Tabs: 1. Program Spec -> 2. Selection Screen -> 3. ALV Grid
   const [mainTab, setMainTab] = useState<'info' | 'selection' | 'alv'>('info');
 
@@ -72,6 +80,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
 
   // Dynamic Selection Param Addition State & Function
   const [showAddParamModal, setShowAddParamModal] = useState(false);
+  const [showParamSearchHelp, setShowParamSearchHelp] = useState(false);
   const [newParamForm, setNewParamForm] = useState<{
     kind: SelectionKind;
     name: string;
@@ -474,7 +483,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
             </span>
           </button>
 
-          {/* Main Tab 3: ALV Grid (내부에 Layout, Field Catalog, Toolbar, Test Case 포함) */}
+          {/* Main Tab 3: Main Screen (내부에 Layout, Field Catalog, Toolbar, Test Case 포함) */}
           <button
             onClick={() => setMainTab('alv')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
@@ -484,7 +493,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
             }`}
           >
             <Table className="w-3.5 h-3.5" />
-            <span>ALV Grid</span>
+            <span>Main Screen</span>
             <span
               className={`text-[10px] px-1.5 py-0.2 rounded-full ${
                 mainTab === 'alv' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
@@ -494,6 +503,21 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
             </span>
           </button>
         </div>
+
+        {/* Right side quick actions: Templates Library */}
+        {onOpenTemplates && (
+          <div className="flex items-center gap-1.5 py-1.5">
+            <button
+              type="button"
+              onClick={onOpenTemplates}
+              className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 hover:text-blue-700 border border-slate-300 rounded-md transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              title="Browse, load, or save predefined SAP program templates"
+            >
+              <Layers className="w-3.5 h-3.5 text-blue-600" />
+              <span>Templates</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Editor Content Area */}
@@ -1044,13 +1068,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-blue-600" />
-                  <span>Selection Screen (선택 화면 파라미터 정의)</span>
+                  <span>Selection Screen (Selection Parameters Definition)</span>
                   <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-blue-100 text-blue-900 font-bold">
-                    총 {spec.selection_params.length}개 항목
+                    Total {spec.selection_params.length} items
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500">
-                  프로그램 실행 전 조회 조건(PARAMETERS 단일값 및 SELECT-OPTIONS 범위선택)의 필드명, 데이터 타입, 길이를 동적으로 추가하고 관리합니다.
+                  Define input criteria (PARAMETERS & SELECT-OPTIONS) with field names, data types, lengths, and reference tables.
                 </p>
               </div>
 
@@ -1065,7 +1089,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                       name: `P_FLD${nextIdx}`,
                       datatype: 'CHAR',
                       length: 10,
-                      text: `파라미터 항목 ${nextIdx}`,
+                      text: `Parameter Item ${nextIdx}`,
                       ref_table: '',
                       ref_field: '',
                       obligatory: false,
@@ -1074,10 +1098,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                     setShowAddParamModal(true);
                   }}
                   className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="새 Parameters 필드 추가 (필드명, 데이터타입, 길이 지정)"
+                  title="Add Parameters field (single value)"
                 >
                   <Plus className="w-3.5 h-3.5 text-amber-600" />
-                  <span>+ Parameters 추가</span>
+                  <span>Parameters</span>
                 </button>
                 <button
                   type="button"
@@ -1088,7 +1112,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                       name: `S_FLD${nextIdx}`,
                       datatype: 'CHAR',
                       length: 10,
-                      text: `선택 범위 항목 ${nextIdx}`,
+                      text: `Selection Range ${nextIdx}`,
                       ref_table: '',
                       ref_field: '',
                       obligatory: false,
@@ -1097,10 +1121,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                     setShowAddParamModal(true);
                   }}
                   className="px-3 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="새 Select-options 필드 추가 (필드명, 데이터타입, 길이 지정)"
+                  title="Add Select-options field (range selection)"
                 >
                   <Plus className="w-3.5 h-3.5 text-blue-600" />
-                  <span>+ Select-options 추가</span>
+                  <span>Select-options</span>
                 </button>
               </div>
             </div>
@@ -1123,13 +1147,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 <div className="flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-blue-400" />
                   <h4 className="text-sm font-bold">
-                    {newParamForm.kind === 'PARAMETER' ? 'Parameters (단일 입력)' : 'Select-options (범위 선택)'} 필드 동적 추가
+                    Add {newParamForm.kind === 'PARAMETER' ? 'Parameters (Single Value)' : 'Select-options (Range)'} Field
                   </h4>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowAddParamModal(false)}
-                  className="text-slate-400 hover:text-white"
+                  className="text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1138,16 +1162,16 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
               {/* Quick SAP Field Presets */}
               <div className="px-5 pt-3 pb-1 bg-slate-50 border-b border-slate-200 text-xs">
                 <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
-                  자주 사용하는 표준 프리셋 빠른 적용:
+                  Quick Preset Application:
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    { label: 'P_BUKRS (회사코드)', kind: 'PARAMETER' as SelectionKind, name: 'P_BUKRS', datatype: 'CHAR' as SapDataType, length: 4, text: '회사코드', ref_table: 'T001', ref_field: 'BUKRS', obligatory: true, default_val: '1000' },
-                    { label: 'S_ERDAT (전표일자)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_ERDAT', datatype: 'DATS' as SapDataType, length: 8, text: '전표일자', ref_table: 'VBAK', ref_field: 'ERDAT', obligatory: false, default_val: '' },
-                    { label: 'S_VBELN (판매오더)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_VBELN', datatype: 'CHAR' as SapDataType, length: 10, text: '판매오더 번호', ref_table: 'VBAK', ref_field: 'VBELN', obligatory: false, default_val: '' },
-                    { label: 'P_WERKS (플랜트)', kind: 'PARAMETER' as SelectionKind, name: 'P_WERKS', datatype: 'CHAR' as SapDataType, length: 4, text: '플랜트', ref_table: 'T001W', ref_field: 'WERKS', obligatory: true, default_val: '1000' },
-                    { label: 'S_MATNR (자재코드)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_MATNR', datatype: 'CHAR' as SapDataType, length: 18, text: '자재코드', ref_table: 'MARA', ref_field: 'MATNR', obligatory: false, default_val: '' },
-                    { label: 'P_VKORG (영업조직)', kind: 'PARAMETER' as SelectionKind, name: 'P_VKORG', datatype: 'CHAR' as SapDataType, length: 4, text: '영업조직', ref_table: 'VBAK', ref_field: 'VKORG', obligatory: true, default_val: '1000' },
+                    { label: 'P_BUKRS (Company Code)', kind: 'PARAMETER' as SelectionKind, name: 'P_BUKRS', datatype: 'CHAR' as SapDataType, length: 4, text: 'Company Code', ref_table: 'T001', ref_field: 'BUKRS', obligatory: true, default_val: '1000' },
+                    { label: 'S_ERDAT (Doc Date)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_ERDAT', datatype: 'DATS' as SapDataType, length: 8, text: 'Document Date', ref_table: 'VBAK', ref_field: 'ERDAT', obligatory: false, default_val: '' },
+                    { label: 'S_VBELN (Sales Order)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_VBELN', datatype: 'CHAR' as SapDataType, length: 10, text: 'Sales Order Number', ref_table: 'VBAK', ref_field: 'VBELN', obligatory: false, default_val: '' },
+                    { label: 'P_WERKS (Plant)', kind: 'PARAMETER' as SelectionKind, name: 'P_WERKS', datatype: 'CHAR' as SapDataType, length: 4, text: 'Plant', ref_table: 'T001W', ref_field: 'WERKS', obligatory: true, default_val: '1000' },
+                    { label: 'S_MATNR (Material)', kind: 'SELECT_OPTION' as SelectionKind, name: 'S_MATNR', datatype: 'CHAR' as SapDataType, length: 18, text: 'Material Number', ref_table: 'MARA', ref_field: 'MATNR', obligatory: false, default_val: '' },
+                    { label: 'P_VKORG (Sales Org)', kind: 'PARAMETER' as SelectionKind, name: 'P_VKORG', datatype: 'CHAR' as SapDataType, length: 4, text: 'Sales Organization', ref_table: 'VBAK', ref_field: 'VKORG', obligatory: true, default_val: '1000' },
                   ].map((preset) => (
                     <button
                       key={preset.name}
@@ -1171,7 +1195,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
               >
                 {/* Kind Toggle */}
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">구분 (Kind)</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Kind</label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -1188,7 +1212,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                           : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-slate-100'
                       }`}
                     >
-                      <span>PARAMETERS (단일 입력값)</span>
+                      <span>PARAMETERS (Single Input)</span>
                     </button>
                     <button
                       type="button"
@@ -1205,7 +1229,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                           : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-slate-100'
                       }`}
                     >
-                      <span>SELECT-OPTIONS (범위/복수선택)</span>
+                      <span>SELECT-OPTIONS (Range Input)</span>
                     </button>
                   </div>
                 </div>
@@ -1214,7 +1238,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">
-                      변수명 (Field Name) <span className="text-red-500">*</span>
+                      Field Name <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -1230,7 +1254,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
 
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">
-                      데이터 타입 (Data Type) <span className="text-red-500">*</span>
+                      Data Type <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={newParamForm.datatype}
@@ -1245,21 +1269,21 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                       }}
                       className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1.5 font-mono text-slate-800 focus:bg-white focus:border-blue-500"
                     >
-                      <option value="CHAR">CHAR (문자열)</option>
-                      <option value="NUMC">NUMC (숫자형 문자)</option>
-                      <option value="DATS">DATS (날짜 YYYYMMDD)</option>
-                      <option value="TIMS">TIMS (시간 HHMMSS)</option>
-                      <option value="CURR">CURR (통화 금액)</option>
-                      <option value="DEC">DEC (소수점 숫자)</option>
-                      <option value="INT4">INT4 (4바이트 정수)</option>
-                      <option value="UNIT">UNIT (수량 단위)</option>
-                      <option value="STRING">STRING (가변 문자열)</option>
+                      <option value="CHAR">CHAR (Character String)</option>
+                      <option value="NUMC">NUMC (Numeric Text)</option>
+                      <option value="DATS">DATS (Date YYYYMMDD)</option>
+                      <option value="TIMS">TIMS (Time HHMMSS)</option>
+                      <option value="CURR">CURR (Currency Amount)</option>
+                      <option value="DEC">DEC (Decimal Number)</option>
+                      <option value="INT4">INT4 (4-byte Integer)</option>
+                      <option value="UNIT">UNIT (Unit of Measure)</option>
+                      <option value="STRING">STRING (Variable Length)</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">
-                      길이 (Length) <span className="text-red-500">*</span>
+                      Length <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="number"
@@ -1281,47 +1305,54 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 {/* Screen Text */}
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    선택 화면 텍스트 (Screen Text / Label) <span className="text-red-500">*</span>
+                    Screen Text (Label) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     value={newParamForm.text}
                     onChange={(e) => setNewParamForm({ ...newParamForm, text: e.target.value })}
-                    placeholder="예: 회사코드, 전표일자, 판매오더 번호"
+                    placeholder="e.g., Company Code, Document Date, Sales Order"
                     className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-slate-800 focus:bg-white focus:border-blue-500"
                   />
                 </div>
 
-                {/* Reference Table & Field */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
-                      참조 테이블 (Ref Table)
-                    </label>
-                    <input
-                      type="text"
-                      value={newParamForm.ref_table}
-                      onChange={(e) =>
-                        setNewParamForm({ ...newParamForm, ref_table: e.target.value.toUpperCase() })
-                      }
-                      placeholder="예: VBAK, T001"
-                      className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 font-mono uppercase text-slate-800 focus:bg-white focus:border-blue-500"
-                    />
+                {/* Reference Table & Field with Search Help (F4) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-slate-700">Reference Table & Field</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowParamSearchHelp(true)}
+                      className="text-[11px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Search className="w-3 h-3 text-blue-600" />
+                      <span>Search Help (F4)</span>
+                    </button>
                   </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
-                      참조 필드 (Ref Field)
-                    </label>
-                    <input
-                      type="text"
-                      value={newParamForm.ref_field}
-                      onChange={(e) =>
-                        setNewParamForm({ ...newParamForm, ref_field: e.target.value.toUpperCase() })
-                      }
-                      placeholder="예: VBELN, BUKRS"
-                      className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 font-mono uppercase text-slate-800 focus:bg-white focus:border-blue-500"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <input
+                        type="text"
+                        value={newParamForm.ref_table}
+                        onChange={(e) =>
+                          setNewParamForm({ ...newParamForm, ref_table: e.target.value.toUpperCase() })
+                        }
+                        placeholder="Ref Table (e.g., VBAK)"
+                        className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 font-mono uppercase text-slate-800 focus:bg-white focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        value={newParamForm.ref_field}
+                        onChange={(e) =>
+                          setNewParamForm({ ...newParamForm, ref_field: e.target.value.toUpperCase() })
+                        }
+                        placeholder="Ref Field (e.g., VBELN)"
+                        className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 font-mono uppercase text-slate-800 focus:bg-white focus:border-blue-500"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1329,7 +1360,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">
-                      기본값 (Default Value)
+                      Default Value
                     </label>
                     <input
                       type="text"
@@ -1337,7 +1368,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                       onChange={(e) =>
                         setNewParamForm({ ...newParamForm, default_val: e.target.value })
                       }
-                      placeholder="예: 1000, 2026.01.01"
+                      placeholder="e.g., 1000, 2026.01.01"
                       className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-slate-800 focus:bg-white focus:border-blue-500"
                     />
                   </div>
@@ -1351,7 +1382,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                         }
                         className="w-4 h-4 accent-red-600 rounded"
                       />
-                      <span>필수 입력 (OBLIGATORY)</span>
+                      <span>OBLIGATORY (Required)</span>
                     </label>
                   </div>
                 </div>
@@ -1363,20 +1394,37 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                     onClick={() => setShowAddParamModal(false)}
                     className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold cursor-pointer"
                   >
-                    취소
+                    Cancel
                   </button>
                   <button
                     type="submit"
                     className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    <span>선택 조건 추가 완료</span>
+                    <span>Add Field</span>
                   </button>
                 </div>
               </form>
             </div>
           </div>
         )}
+
+        {/* Search Help (F4) Modal for Selection Parameters */}
+        <SapSearchHelpModal
+          isOpen={showParamSearchHelp}
+          onClose={() => setShowParamSearchHelp(false)}
+          onSelect={(selected) => {
+            setNewParamForm((prev) => ({
+              ...prev,
+              ref_table: selected.table,
+              ref_field: selected.field,
+              datatype: selected.datatype,
+              length: selected.length,
+              text: selected.label,
+              name: prev.kind === 'PARAMETER' ? `P_${selected.field}` : `S_${selected.field}`,
+            }));
+          }}
+        />
 
         {/* ========================================================================= */}
         {/* MAIN TAB 3: ALV 그리드 (Layout -> Field Catalog -> Toolbar -> Test Case)  */}
@@ -1387,60 +1435,54 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
             {isMasterDetail && (
               <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gradient-to-r from-blue-50 to-indigo-50/60 border border-blue-200 rounded-lg shadow-2xs">
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-bold text-blue-950">
-                    <Layers className="w-4 h-4 text-blue-600" />
-                    <span>ALV Grid 대상 선택:</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setActiveGridTab('header')}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                        activeGridTab === 'header'
-                          ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/30'
-                          : 'bg-white text-slate-700 hover:bg-blue-100/70 border border-slate-300'
+                  <button
+                    type="button"
+                    onClick={() => setActiveGridTab('header')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                      activeGridTab === 'header'
+                        ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/30'
+                        : 'bg-white text-slate-700 hover:bg-blue-100/70 border border-slate-300'
+                    }`}
+                  >
+                    <span>Header</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                        activeGridTab === 'header' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
                       }`}
                     >
-                      <span>Header ALV Grid (헤더)</span>
-                      <span
-                        className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                          activeGridTab === 'header' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {spec.field_catalog.length}
-                      </span>
-                    </button>
+                      {spec.field_catalog.length}
+                    </span>
+                  </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setActiveGridTab('item')}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                        activeGridTab === 'item'
-                          ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/30'
-                          : 'bg-white text-slate-700 hover:bg-blue-100/70 border border-slate-300'
+                  <button
+                    type="button"
+                    onClick={() => setActiveGridTab('item')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                      activeGridTab === 'item'
+                        ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/30'
+                        : 'bg-white text-slate-700 hover:bg-blue-100/70 border border-slate-300'
+                    }`}
+                  >
+                    <span>Item</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                        activeGridTab === 'item' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
                       }`}
                     >
-                      <span>Item ALV Grid (아이템/품목)</span>
-                      <span
-                        className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                          activeGridTab === 'item' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {spec.item_grid?.field_catalog?.length || 0}
-                      </span>
-                    </button>
-                  </div>
+                      {spec.item_grid?.field_catalog?.length || 0}
+                    </span>
+                  </button>
                 </div>
 
                 <div className="text-[11px] text-blue-900 font-medium px-2">
-                  {activeGridTab === 'header' ? '현재 [Header ALV Grid] 편집 중' : '현재 [Item ALV Grid] 편집 중 (헤더 연계 필드: VBELN)'}
+                  {activeGridTab === 'header' ? 'Editing [Header]' : 'Editing [Item] (Header Key: VBELN)'}
                 </div>
               </div>
             )}
 
             {/* Sub-Tab Navigation Header */}
             <div className="flex items-center gap-1.5 border-b border-slate-200 pb-2.5 bg-slate-50 p-1.5 rounded-lg overflow-x-auto">
-              {/* 1. Layout (그리드 레이아웃 먼저) */}
+              {/* 1. Layout */}
               <button
                 onClick={() => setAlvSubTab('layout')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
@@ -1453,7 +1495,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 <span>Layout</span>
               </button>
 
-              {/* 2. Field Catalog (그다음에 필드 카탈로그) */}
+              {/* 2. Field Catalog */}
               <button
                 onClick={() => setAlvSubTab('fields')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
@@ -1473,7 +1515,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 </span>
               </button>
 
-              {/* 3. Toolbar (그다음에 툴바) */}
+              {/* 3. Toolbar */}
               <button
                 onClick={() => setAlvSubTab('toolbar')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
@@ -1493,7 +1535,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 </span>
               </button>
 
-              {/* 4. Test Case (그다음에 테스트 케이스) */}
+              {/* 4. Test Case */}
               <button
                 onClick={() => setAlvSubTab('tests')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
@@ -1519,17 +1561,17 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
               <div className="space-y-6 max-w-3xl">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Layout ({activeIsItem ? 'Item ALV Grid' : 'Header ALV Grid'} 레이아웃 설정: LVC_S_LAYO)
+                    Configure the Layout
                   </h3>
                   <p className="text-xs text-slate-500">
-                    CL_GUI_ALV_GRID의 시각적 형태 및 동작 모드를 정의합니다.
+                    Define visual appearance and behavior for CL_GUI_ALV_GRID (LVC_S_LAYO).
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      그리드 상단 헤더 타이틀 (GRID_TITLE)
+                      Grid Header Title (GRID_TITLE)
                     </label>
                     <input
                       type="text"
@@ -1540,13 +1582,14 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                           grid_title: e.target.value,
                         })
                       }
+                      placeholder="e.g. Sales Order ALV Grid Report"
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 text-xs font-medium focus:border-blue-500"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      선택 모드 (SEL_MODE)
+                      Selection Mode (SEL_MODE)
                     </label>
                     <select
                       value={activeLayout.sel_mode}
@@ -1558,10 +1601,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                       }
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 text-xs font-medium focus:border-blue-500"
                     >
-                      <option value="A">A: 복수 행 및 열 선택 (Multiple rows/columns)</option>
-                      <option value="B">B: 단일 행 선택 (Single row)</option>
-                      <option value="C">C: 복수 행 선택 (Multiple rows)</option>
-                      <option value="D">D: 셀 단위 선택 (Cell selection)</option>
+                      <option value="A">A: Multiple Rows and Columns (복수 행 및 열 선택)</option>
+                      <option value="B">B: Single Row Selection (단일 행 선택)</option>
+                      <option value="C">C: Multiple Rows Selection (복수 행 선택)</option>
+                      <option value="D">D: Cell Selection (셀 단위 선택)</option>
                     </select>
                   </div>
 
@@ -1578,7 +1621,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                         }
                         className="w-4 h-4 accent-blue-600 rounded"
                       />
-                      <span>줄무늬 패턴 적용 (gs_layo-zebra = 'X')</span>
+                      <span>Apply Zebra Striping (gs_layo-zebra = 'X')</span>
                     </label>
 
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-800">
@@ -1593,7 +1636,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                         }
                         className="w-4 h-4 accent-blue-600 rounded"
                       />
-                      <span>컬럼 폭 자동 최적화 (gs_layo-cwidth_opt = 'X')</span>
+                      <span>Optimize Column Width (gs_layo-cwidth_opt = 'X')</span>
                     </label>
                   </div>
                 </div>
@@ -1606,10 +1649,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">
-                      Field Catalog ({activeIsItem ? 'Item Grid: LVC_T_FCAT' : 'Header Grid: LVC_T_FCAT'})
+                      Configure the Field catalog
                     </h3>
                     <p className="text-xs text-slate-500">
-                      보고자 하는 필드를 추가하고 속성(키, 핫스팟 링크, 수정 가능 여부, 합계 등)을 설정하면 우측 ALV 화면에 즉시 반영됩니다.
+                      Add fields and configure properties (Key, Hotspot Link, Editable, Sum, etc.) to immediately reflect on the ALV grid (LVC_T_FCAT).
                     </p>
                   </div>
                 </div>
@@ -1633,10 +1676,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
               <div className="space-y-4">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Toolbar ({activeIsItem ? 'Item Grid: LVC_T_STB' : 'Header Grid: LVC_T_STB'})
+                    Configure the Toolbar
                   </h3>
                   <p className="text-xs text-slate-500">
-                    ALV Toolbar 표준 버튼 및 사용자 정의 커스텀 버튼을 구성합니다.
+                    Configure ALV standard toolbar buttons and custom user-defined buttons (LVC_T_STB).
                   </p>
                 </div>
 
@@ -1659,10 +1702,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">
-                      Test Case ({activeIsItem ? 'Item ALV Grid' : 'Header ALV Grid'} 검증 및 테스트 데이터)
+                      Test Case ({activeIsItem ? 'Item ALV Grid' : 'Header ALV Grid'} Verification & Test Data)
                     </h3>
                     <p className="text-xs text-slate-500">
-                      사양서 검증용 테스트 시나리오를 작성하거나, 엑셀/CSV 템플릿을 다운로드 및 업로드하여 ALV 화면에 즉시 반영할 수 있습니다.
+                      Write test scenarios for specification verification, or download/upload CSV templates to immediately reflect on the ALV grid.
                     </p>
                   </div>
 
@@ -1677,19 +1720,19 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                         );
                       }}
                       className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-                      title="현재 필드 카탈로그 구조에 맞춘 엑셀/CSV 템플릿 양식을 다운로드합니다."
+                      title="Download CSV template format configured for current field catalog."
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>양식 다운로드</span>
+                      <span>Download Template</span>
                     </button>
 
                     {/* Excel / CSV Upload Button */}
                     <label
                       className="px-3 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-                      title="작성된 엑셀/CSV 데이터를 업로드하여 ALV 그리드에 반영합니다. (상태 필드는 모두 녹색 '1'로 지정)"
+                      title="Upload prepared CSV test data to render in the ALV grid."
                     >
                       <Upload className="w-3.5 h-3.5" />
-                      <span>엑셀/CSV 업로드</span>
+                      <span>Upload CSV</span>
                       <input
                         type="file"
                         accept=".csv,.txt"
@@ -1705,7 +1748,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                       className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded flex items-center gap-1.5 cursor-pointer shadow-2xs"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>테스트 항목 추가</span>
+                      <span>Add Test Scenario</span>
                     </button>
                   </div>
                 </div>
@@ -1721,26 +1764,26 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                 {/* 1. Test Scenarios Table */}
                 <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-xs">
                   <div className="px-3 py-2 bg-slate-100 border-b border-slate-200 font-bold text-xs text-slate-800 flex items-center justify-between">
-                    <span>테스트 시나리오 목록</span>
+                    <span>Test Scenario List</span>
                     <span className="text-[11px] font-normal text-slate-500">
-                      총 {activeTestCases.length}건
+                      Total {activeTestCases.length} items
                     </span>
                   </div>
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 text-slate-700 font-semibold text-[11px] border-b border-slate-200">
                       <tr>
                         <th className="p-2.5 w-12 text-center">No</th>
-                        <th className="p-2.5 w-48">시나리오 (Scenario)</th>
-                        <th className="p-2.5">입력 조건 (Condition)</th>
-                        <th className="p-2.5">예상 결과 (Expected Result)</th>
-                        <th className="p-2.5 w-16 text-center">삭제</th>
+                        <th className="p-2.5 w-48">Scenario (Description)</th>
+                        <th className="p-2.5">Input Condition</th>
+                        <th className="p-2.5">Expected Result</th>
+                        <th className="p-2.5 w-16 text-center">Delete</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-[11px]">
                       {activeTestCases.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="p-6 text-center text-slate-400">
-                            등록된 테스트 시나리오가 없습니다. 상단 '테스트 항목 추가' 버튼을 눌러 추가하세요.
+                            No test scenarios registered. Click 'Add Test Scenario' above to add one.
                           </td>
                         </tr>
                       ) : (
@@ -1809,11 +1852,11 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                     <div className="flex items-center gap-1.5">
                       <Table className="w-3.5 h-3.5 text-blue-700" />
                       <span>
-                        ALV Grid 테스트 데이터 ({activeIsItem ? 'Item Grid' : 'Header Grid'}: {activeMockRows.length}건)
+                        ALV Grid Test Data ({activeIsItem ? 'Item Grid' : 'Header Grid'}: {activeMockRows.length} rows)
                       </span>
                     </div>
                     <span className="text-[11px] text-blue-700 font-normal">
-                      우측 Simulate 화면에 실시간 렌더링됩니다
+                      Rendered in real-time in the Simulate screen on the right
                     </span>
                   </div>
 
@@ -1833,7 +1876,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                         {activeMockRows.length === 0 ? (
                           <tr>
                             <td colSpan={activeFieldCatalog.length + 1} className="p-6 text-center text-slate-400">
-                              테스트 데이터가 없습니다. 상단의 '양식 다운로드' 후 '엑셀/CSV 업로드'를 실행해보세요.
+                              No test data available. Download the template above and upload CSV, or generate mock data.
                             </td>
                           </tr>
                         ) : (
@@ -1861,7 +1904,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({ spec, onChange, onTrigge
                                           <span className="w-3 h-3 rounded-full bg-rose-500 border border-rose-700 inline-block" />
                                         )}
                                         <span className="text-[10px] text-slate-600 font-bold">
-                                          {val === '1' ? '정상(1)' : val === '2' ? '경고(2)' : '오류(3)'}
+                                          {val === '1' ? 'Normal(1)' : val === '2' ? 'Warning(2)' : 'Error(3)'}
                                         </span>
                                       </div>
                                     ) : (
