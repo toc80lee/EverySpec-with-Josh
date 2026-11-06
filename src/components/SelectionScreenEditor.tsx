@@ -1,7 +1,32 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, ArrowUp, ArrowDown, Sliders, Sparkles, X, Check, Search } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Sliders,
+  Sparkles,
+  X,
+  Check,
+  Search,
+  FileSpreadsheet,
+  Copy,
+  ClipboardPaste,
+  Grid,
+} from 'lucide-react';
 import { SelectionParameter, SelectionKind, ProgramSpec, SapDataType } from '../types/sap';
 import { SapSearchHelpModal } from './SapSearchHelpModal';
+import {
+  exportSelectionParamsToTsv,
+  copyTsvToClipboard,
+  parseSpreadsheetText,
+  CellRange,
+  isCellInRange,
+  extractCellRangeTsv,
+  normalizeDataType,
+  defaultLengthForType,
+  isTruthy,
+} from '../utils/spreadsheetClipboard';
 
 interface SelectionScreenEditorProps {
   spec: ProgramSpec;
@@ -41,6 +66,208 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
     type: 'modal' | 'row';
     paramId?: string;
   } | null>(null);
+
+  // Cell range selection state
+  const [selectedRange, setSelectedRange] = useState<CellRange | null>(null);
+  const [isMouseDown, setIsMouseDown] = useState(false);
+  const dragAnchorRef = React.useRef<{ row: number; col: number } | null>(null);
+
+  React.useEffect(() => {
+    const handleMouseUp = () => {
+      setIsMouseDown(false);
+    };
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, []);
+
+  const COL_COUNT = 9;
+
+  const getSelectionCellValue = (rowIdx: number, colIdx: number): string => {
+    const p = spec.selection_params[rowIdx];
+    if (!p) return '';
+    switch (colIdx) {
+      case 0: return p.kind === 'PARAMETER' ? 'PARAM' : 'S-OPT';
+      case 1: return p.name || '';
+      case 2: return p.text || '';
+      case 3: return p.datatype || 'CHAR';
+      case 4: return String(p.length || 10);
+      case 5: return p.ref_table || '';
+      case 6: return p.ref_field || '';
+      case 7: return p.obligatory ? 'X' : '';
+      case 8: return p.default_val || '';
+      default: return '';
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      const activeEl = document.activeElement;
+      if (
+        activeEl instanceof HTMLInputElement &&
+        activeEl.selectionStart !== null &&
+        activeEl.selectionEnd !== null &&
+        activeEl.selectionStart !== activeEl.selectionEnd
+      ) {
+        return;
+      }
+      if (selectedRange) {
+        e.preventDefault();
+        const tsv = extractCellRangeTsv(selectedRange, getSelectionCellValue);
+        if (tsv) {
+          copyTsvToClipboard(tsv);
+        }
+      }
+    }
+  };
+
+  const handleCellMouseDown = (rowIdx: number, colIdx: number) => {
+    setIsMouseDown(true);
+    dragAnchorRef.current = { row: rowIdx, col: colIdx };
+    setSelectedRange({
+      startRow: rowIdx,
+      startCol: colIdx,
+      endRow: rowIdx,
+      endCol: colIdx,
+    });
+  };
+
+  const handleCellMouseEnter = (rowIdx: number, colIdx: number) => {
+    if (!isMouseDown || !dragAnchorRef.current) return;
+    setSelectedRange({
+      startRow: dragAnchorRef.current.row,
+      startCol: dragAnchorRef.current.col,
+      endRow: rowIdx,
+      endCol: colIdx,
+    });
+  };
+
+  // Direct paste into selected cells and expand rows if needed
+  const handleTablePaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text/plain');
+    if (!text) return;
+
+    const matrix = parseSpreadsheetText(text);
+    if (matrix.length === 0) return;
+
+    e.preventDefault();
+
+    const startR = selectedRange
+      ? Math.min(selectedRange.startRow, selectedRange.endRow)
+      : 0;
+    const startC = selectedRange
+      ? Math.min(selectedRange.startCol, selectedRange.endCol)
+      : (matrix[0].length === 1 ? 2 : 0); // Default to Screen Text if single col
+
+    const pastedRowCount = matrix.length;
+    const pastedColCount = Math.max(...matrix.map((r) => r.length));
+
+    const updated = [...spec.selection_params];
+    const neededTotal = startR + pastedRowCount;
+
+    // Expand rows if needed!
+    if (neededTotal > updated.length) {
+      const rowsToAdd = neededTotal - updated.length;
+      for (let i = 0; i < rowsToAdd; i++) {
+        const nextIdx = updated.length + 1;
+        const newParam: SelectionParameter = {
+          id: `param-paste-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
+          kind: 'PARAMETER',
+          name: `P_PARAM${nextIdx}`,
+          text: `Parameter ${nextIdx}`,
+          datatype: 'CHAR',
+          length: 10,
+          obligatory: false,
+          default_val: '',
+        };
+        updated.push(newParam);
+      }
+    }
+
+    // Apply cell values
+    matrix.forEach((rowVals, rOffset) => {
+      const targetRowIdx = startR + rOffset;
+      if (!updated[targetRowIdx]) return;
+
+      const targetParam = { ...updated[targetRowIdx] };
+
+      rowVals.forEach((val, cOffset) => {
+        const targetColIdx = startC + cOffset;
+        const trimmed = val.trim();
+
+        switch (targetColIdx) {
+          case 0: { // KIND
+            const up = trimmed.toUpperCase();
+            if (up.includes('SELECT') || up.includes('S-OPT') || up.startsWith('S_')) {
+              targetParam.kind = 'SELECT_OPTION';
+            } else {
+              targetParam.kind = 'PARAMETER';
+            }
+            break;
+          }
+          case 1: // NAME
+            if (trimmed) targetParam.name = trimmed.toUpperCase();
+            break;
+          case 2: // SCREEN TEXT
+            targetParam.text = trimmed;
+            break;
+          case 3: // TYPE
+            if (trimmed) {
+              const dt = normalizeDataType(trimmed);
+              targetParam.datatype = dt;
+              if (!rowVals[cOffset + 1]) {
+                targetParam.length = defaultLengthForType(dt);
+              }
+            }
+            break;
+          case 4: { // LENGTH
+            const num = parseInt(trimmed, 10);
+            if (!isNaN(num) && num > 0) targetParam.length = num;
+            break;
+          }
+          case 5: // REF TABLE
+            targetParam.ref_table = trimmed.toUpperCase();
+            break;
+          case 6: // REF FIELD
+            targetParam.ref_field = trimmed.toUpperCase();
+            break;
+          case 7: // OBLIGATORY
+            targetParam.obligatory = isTruthy(trimmed, false);
+            break;
+          case 8: // DEFAULT VALUE
+            targetParam.default_val = trimmed;
+            break;
+        }
+      });
+
+      updated[targetRowIdx] = targetParam;
+    });
+
+    onChange(updated);
+
+    setSelectedRange({
+      startRow: startR,
+      startCol: startC,
+      endRow: startR + pastedRowCount - 1,
+      endCol: Math.min(startC + pastedColCount - 1, COL_COUNT - 1),
+    });
+  };
+
+  const handleCopyTable = async () => {
+    const tsv = exportSelectionParamsToTsv(spec.selection_params);
+    await copyTsvToClipboard(tsv);
+  };
+
+  const handleCellKeyDown = (e: React.KeyboardEvent, rowIndex: number, colKey: string) => {
+    if (e.key === 'Enter' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextInput = document.querySelector(`[data-cell="${rowIndex + 1}-${colKey}"]`) as HTMLElement;
+      if (nextInput) nextInput.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevInput = document.querySelector(`[data-cell="${rowIndex - 1}-${colKey}"]`) as HTMLElement;
+      if (prevInput) prevInput.focus();
+    }
+  };
 
   const [addForm, setAddForm] = useState<{
     kind: SelectionKind;
@@ -160,7 +387,11 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
   };
 
   return (
-    <div className="space-y-4 font-sans">
+    <div
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      className="space-y-4 font-sans focus:outline-none"
+    >
       {/* Search Help (F4) Modal */}
       <SapSearchHelpModal
         isOpen={searchHelpTarget !== null}
@@ -393,192 +624,439 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
         </div>
       )}
 
-      {/* Parameters Table */}
-      <div className="border border-slate-200 rounded-lg overflow-x-auto bg-white shadow-xs">
-        <table className="w-full text-xs text-left border-collapse">
-          <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
+      {/* Spreadsheet Quick Actions Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs shadow-2xs">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => handleOpenAdd('PARAMETER')}
+            title="+ Add PARAM (Parameters - Single Value)"
+            aria-label="Add PARAM"
+            className="p-1.5 text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
+          >
+            <Plus className="w-4 h-4 text-amber-600" />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleOpenAdd('SELECT_OPTION')}
+            title="+ Add S-OPT (Select-Options - Range Selection)"
+            aria-label="Add S-OPT"
+            className="p-1.5 text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
+          >
+            <Sliders className="w-4 h-4 text-blue-600" />
+          </button>
+          <button
+            type="button"
+            onClick={handleCopyTable}
+            disabled={spec.selection_params.length === 0}
+            className="p-1.5 text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md transition-colors shadow-2xs cursor-pointer disabled:opacity-40 flex items-center justify-center"
+            title="Copy Table to Excel"
+            aria-label="Copy Table to Excel"
+          >
+            <Copy className="w-4 h-4 text-slate-500" />
+          </button>
+        </div>
+
+        {/* Spreadsheet Hint */}
+        <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-200">
+            <strong>Spreadsheet Mode:</strong> Drag to select cells · Ctrl+C copy · Ctrl+V paste
+          </span>
+          <span className="font-bold text-slate-700">
+            {spec.selection_params.length} rows
+          </span>
+        </div>
+      </div>
+
+      {/* Google Sheets Styled Parameters Table */}
+      <div
+        onPaste={handleTablePaste}
+        className="border border-slate-300 rounded-lg overflow-x-auto bg-white shadow-xs focus:outline-none select-none"
+      >
+        <table className="w-full text-xs text-left border-collapse font-sans">
+          {/* Spreadsheet Header: Column Letters & Field Names */}
+          <thead className="bg-slate-100 text-slate-700 font-semibold text-[11px] select-none border-b border-slate-300">
             <tr>
-              <th className="py-2.5 px-2.5 w-14 text-center">Kind</th>
-              <th className="py-2.5 px-2.5 w-28">Name (FIELD)</th>
-              <th className="py-2.5 px-2.5 min-w-36">Screen Text (Label)</th>
-              <th className="py-2.5 px-2 w-20 text-center">Type</th>
-              <th className="py-2.5 px-2 w-14 text-center">Length</th>
-              <th className="py-2.5 px-2.5 w-28">Ref Table</th>
-              <th className="py-2.5 px-2.5 w-28">Ref Field</th>
-              <th className="py-2.5 px-2 text-center w-14">Obligatory</th>
-              <th className="py-2.5 px-2.5 w-24">Default Value</th>
-              <th className="py-2.5 px-2 text-center w-20">Order / Action</th>
+              {/* Row index corner cell */}
+              <th className="py-2 px-2 text-center w-9 bg-slate-200 border-r border-slate-300 text-slate-500 font-mono text-[10px]">
+                fx
+              </th>
+              <th className="py-1.5 px-2 w-16 text-center border-r border-slate-200">
+                <div className="text-[9px] text-slate-400 font-mono">A</div>
+                <div>KIND</div>
+              </th>
+              <th className="py-1.5 px-2 min-w-32 border-r border-slate-200 font-mono">
+                <div className="text-[9px] text-slate-400 font-mono">B</div>
+                <div>NAME (FIELD)</div>
+              </th>
+              <th className="py-1.5 px-2 min-w-44 border-r border-slate-200">
+                <div className="text-[9px] text-slate-400 font-mono">C</div>
+                <div>SCREEN TEXT (LABEL)</div>
+              </th>
+              <th className="py-1.5 px-2 w-24 text-center border-r border-slate-200">
+                <div className="text-[9px] text-slate-400 font-mono">D</div>
+                <div>TYPE</div>
+              </th>
+              <th className="py-1.5 px-2 w-16 text-center border-r border-slate-200">
+                <div className="text-[9px] text-slate-400 font-mono">E</div>
+                <div>LENGTH</div>
+              </th>
+              <th className="py-1.5 px-2 w-28 border-r border-slate-200">
+                <div className="text-[9px] text-slate-400 font-mono">F</div>
+                <div>REF TABLE</div>
+              </th>
+              <th className="py-1.5 px-2 w-28 border-r border-slate-200">
+                <div className="text-[9px] text-slate-400 font-mono">G</div>
+                <div>REF FIELD</div>
+              </th>
+              <th className="py-1.5 px-2 text-center w-16 border-r border-slate-200">
+                <div className="text-[9px] text-slate-400 font-mono">H</div>
+                <div>REQUIRED</div>
+              </th>
+              <th className="py-1.5 px-2 min-w-28 border-r border-slate-200">
+                <div className="text-[9px] text-slate-400 font-mono">I</div>
+                <div>DEFAULT VALUE</div>
+              </th>
+              <th className="py-1.5 px-2 text-center w-24">
+                <div className="text-[9px] text-slate-400 font-mono">ACTIONS</div>
+                <div>ORDER / DEL</div>
+              </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+          <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
             {spec.selection_params.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-8 text-center text-slate-400 font-sans">
-                  No selection parameters defined. Click 'Parameters' or 'Select-options' to add fields.
+                <td colSpan={11} className="py-10 text-center text-slate-400 font-sans">
+                  <div className="flex flex-col items-center justify-center gap-1.5">
+                    <p className="font-medium">No selection parameters defined.</p>
+                    <p className="text-xs text-slate-400">
+                      Copy rows from Excel and paste directly with <strong>Ctrl+V</strong> (lines will be created automatically).
+                    </p>
+                  </div>
                 </td>
               </tr>
             ) : (
-              spec.selection_params.map((param, idx) => (
-                <tr key={param.id} className="hover:bg-slate-50 transition-colors">
-                  {/* Kind */}
-                  <td className="py-2 px-2 text-center">
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        param.kind === 'PARAMETER'
-                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                          : 'bg-blue-100 text-blue-900 border border-blue-300'
+              spec.selection_params.map((param, idx) => {
+                const isSelectedRow =
+                  selectedRange &&
+                  idx >= Math.min(selectedRange.startRow, selectedRange.endRow) &&
+                  idx <= Math.max(selectedRange.startRow, selectedRange.endRow);
+
+                return (
+                  <tr key={param.id} className="hover:bg-blue-50/30 transition-colors">
+                    {/* Row index header (like Google Sheets) */}
+                    <td
+                      onClick={() => {
+                        setSelectedRange({
+                          startRow: idx,
+                          startCol: 0,
+                          endRow: idx,
+                          endCol: COL_COUNT - 1,
+                        });
+                      }}
+                      className={`py-1 px-1 text-center font-mono font-bold text-[10px] border-r border-slate-300 select-none cursor-pointer ${
+                        isSelectedRow ? 'bg-blue-200 text-blue-900' : 'bg-slate-100 text-slate-500'
                       }`}
                     >
-                      {param.kind === 'PARAMETER' ? 'PARAM' : 'S-OPT'}
-                    </span>
-                  </td>
+                      {idx + 1}
+                    </td>
 
-                  {/* Name */}
-                  <td className="py-1.5 px-2 font-bold text-slate-800">
-                    <input
-                      type="text"
-                      value={param.name}
-                      onChange={(e) => handleUpdate(param.id, { name: e.target.value })}
-                      onBlur={(e) =>
-                        handleUpdate(param.id, { name: e.target.value.trim().toUpperCase() })
-                      }
-                      className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500 uppercase font-mono font-bold text-blue-900"
-                    />
-                  </td>
-
-                  {/* Text */}
-                  <td className="py-1.5 px-2 font-sans">
-                    <input
-                      type="text"
-                      value={param.text}
-                      onChange={(e) => handleUpdate(param.id, { text: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500 font-medium text-slate-800"
-                    />
-                  </td>
-
-                  {/* Data Type */}
-                  <td className="py-1.5 px-1.5 text-center">
-                    <select
-                      value={param.datatype || 'CHAR'}
-                      onChange={(e) =>
-                        handleUpdate(param.id, { datatype: e.target.value as SapDataType })
-                      }
-                      className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded font-mono text-[11px] text-slate-800 focus:bg-white focus:border-blue-500 text-center"
+                    {/* Col A: Kind */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 0)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 0)}
+                      className={`p-0 border-r border-slate-200 text-center ${
+                        isCellInRange(selectedRange, idx, 0)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
                     >
-                      {SAP_DATA_TYPES.map((dt) => (
-                        <option key={dt.type} value={dt.type}>
-                          {dt.type}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
+                      <select
+                        value={param.kind}
+                        onChange={(e) =>
+                          handleUpdate(param.id, { kind: e.target.value as SelectionKind })
+                        }
+                        data-cell={`${idx}-kind`}
+                        onFocus={() => {
+                          if (!selectedRange) {
+                            setSelectedRange({ startRow: idx, startCol: 0, endRow: idx, endCol: 0 });
+                          }
+                        }}
+                        onKeyDown={(e) => handleCellKeyDown(e, idx, 'kind')}
+                        className={`w-full h-8 px-1 text-center font-bold text-[10px] focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white cursor-pointer ${
+                          param.kind === 'PARAMETER'
+                            ? 'bg-amber-50 text-amber-900'
+                            : 'bg-blue-50 text-blue-900'
+                        }`}
+                      >
+                        <option value="PARAMETER">PARAM</option>
+                        <option value="SELECT_OPTION">S-OPT</option>
+                      </select>
+                    </td>
 
-                  {/* Length */}
-                  <td className="py-1.5 px-1.5 text-center">
-                    <input
-                      type="number"
-                      min={1}
-                      max={255}
-                      value={param.length || 10}
-                      onChange={(e) =>
-                        handleUpdate(param.id, {
-                          length: Math.max(1, parseInt(e.target.value) || 1),
-                        })
-                      }
-                      className="w-full bg-slate-50 border border-slate-200 px-1 py-1 rounded font-mono text-[11px] text-center focus:bg-white focus:border-blue-500"
-                    />
-                  </td>
-
-                  {/* Ref table with F4 helper */}
-                  <td className="py-1.5 px-2">
-                    <div className="relative flex items-center">
+                    {/* Col B: Name (Field) */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 1)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 1)}
+                      className={`p-0 border-r border-slate-200 ${
+                        isCellInRange(selectedRange, idx, 1)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
+                    >
                       <input
                         type="text"
-                        value={param.ref_table || ''}
-                        onChange={(e) =>
-                          handleUpdate(param.id, { ref_table: e.target.value.toUpperCase() })
+                        value={param.name}
+                        data-cell={`${idx}-name`}
+                        onFocus={() => {
+                          if (!selectedRange) {
+                            setSelectedRange({ startRow: idx, startCol: 1, endRow: idx, endCol: 1 });
+                          }
+                        }}
+                        onKeyDown={(e) => handleCellKeyDown(e, idx, 'name')}
+                        onChange={(e) => handleUpdate(param.id, { name: e.target.value })}
+                        onBlur={(e) =>
+                          handleUpdate(param.id, { name: e.target.value.trim().toUpperCase() })
                         }
-                        placeholder="VBAK"
-                        className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 pr-6 rounded focus:bg-white focus:border-blue-500 uppercase"
+                        className="w-full h-8 px-2 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 uppercase font-mono font-bold text-blue-950"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setSearchHelpTarget({ type: 'row', paramId: param.id })}
-                        title="SAP Search Help (F4)"
-                        className="absolute right-1 text-slate-400 hover:text-blue-600 p-0.5"
-                      >
-                        <Search className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </td>
+                    </td>
 
-                  {/* Ref field */}
-                  <td className="py-1.5 px-2">
-                    <input
-                      type="text"
-                      value={param.ref_field || ''}
-                      onChange={(e) =>
-                        handleUpdate(param.id, { ref_field: e.target.value.toUpperCase() })
-                      }
-                      placeholder="VBELN"
-                      className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500 uppercase"
-                    />
-                  </td>
+                    {/* Col C: Screen Text (Label) */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 2)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 2)}
+                      className={`p-0 border-r border-slate-200 font-sans ${
+                        isCellInRange(selectedRange, idx, 2)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
+                    >
+                      <input
+                        type="text"
+                        value={param.text}
+                        data-cell={`${idx}-text`}
+                        onFocus={() => {
+                          if (!selectedRange) {
+                            setSelectedRange({ startRow: idx, startCol: 2, endRow: idx, endCol: 2 });
+                          }
+                        }}
+                        onKeyDown={(e) => handleCellKeyDown(e, idx, 'text')}
+                        onChange={(e) => handleUpdate(param.id, { text: e.target.value })}
+                        className="w-full h-8 px-2 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium text-slate-800"
+                      />
+                    </td>
 
-                  {/* Obligatory */}
-                  <td className="py-1.5 px-2 text-center">
-                    <input
-                      type="checkbox"
-                      checked={param.obligatory}
-                      onChange={(e) => handleUpdate(param.id, { obligatory: e.target.checked })}
-                      className="w-4 h-4 accent-red-600 rounded cursor-pointer"
-                    />
-                  </td>
+                    {/* Col D: Data Type */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 3)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 3)}
+                      className={`p-0 border-r border-slate-200 text-center ${
+                        isCellInRange(selectedRange, idx, 3)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
+                    >
+                      <select
+                        value={param.datatype || 'CHAR'}
+                        data-cell={`${idx}-datatype`}
+                        onFocus={() => {
+                          if (!selectedRange) {
+                            setSelectedRange({ startRow: idx, startCol: 3, endRow: idx, endCol: 3 });
+                          }
+                        }}
+                        onKeyDown={(e) => handleCellKeyDown(e, idx, 'datatype')}
+                        onChange={(e) =>
+                          handleUpdate(param.id, { datatype: e.target.value as SapDataType })
+                        }
+                        className="w-full h-8 px-1 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono text-[11px] text-slate-800 text-center cursor-pointer"
+                      >
+                        {SAP_DATA_TYPES.map((dt) => (
+                          <option key={dt.type} value={dt.type}>
+                            {dt.type}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
 
-                  {/* Default val */}
-                  <td className="py-1.5 px-2">
-                    <input
-                      type="text"
-                      value={param.default_val || ''}
-                      onChange={(e) => handleUpdate(param.id, { default_val: e.target.value })}
-                      placeholder="1000"
-                      className="w-full bg-slate-50 border border-slate-200 px-1.5 py-1 rounded focus:bg-white focus:border-blue-500"
-                    />
-                  </td>
+                    {/* Col E: Length */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 4)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 4)}
+                      className={`p-0 border-r border-slate-200 text-center ${
+                        isCellInRange(selectedRange, idx, 4)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
+                    >
+                      <input
+                        type="number"
+                        min={1}
+                        max={255}
+                        value={param.length || 10}
+                        data-cell={`${idx}-length`}
+                        onFocus={() => {
+                          if (!selectedRange) {
+                            setSelectedRange({ startRow: idx, startCol: 4, endRow: idx, endCol: 4 });
+                          }
+                        }}
+                        onKeyDown={(e) => handleCellKeyDown(e, idx, 'length')}
+                        onChange={(e) =>
+                          handleUpdate(param.id, {
+                            length: Math.max(1, parseInt(e.target.value) || 1),
+                          })
+                        }
+                        className="w-full h-8 px-1 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono text-[11px] text-center"
+                      />
+                    </td>
 
-                  {/* Actions */}
-                  <td className="py-1.5 px-2 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleMove(idx, 'up')}
-                        disabled={idx === 0}
-                        title="Move Up"
-                        className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20 cursor-pointer"
-                      >
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleMove(idx, 'down')}
-                        disabled={idx === spec.selection_params.length - 1}
-                        title="Move Down"
-                        className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20 cursor-pointer"
-                      >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(param.id)}
-                        title="Delete"
-                        className="p-1 text-slate-400 hover:text-red-600 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                    {/* Col F: Ref Table */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 5)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 5)}
+                      className={`p-0 border-r border-slate-200 relative ${
+                        isCellInRange(selectedRange, idx, 5)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
+                    >
+                      <div className="flex items-center h-8">
+                        <input
+                          type="text"
+                          value={param.ref_table || ''}
+                          data-cell={`${idx}-ref_table`}
+                          onFocus={() => {
+                            if (!selectedRange) {
+                              setSelectedRange({ startRow: idx, startCol: 5, endRow: idx, endCol: 5 });
+                            }
+                          }}
+                          onKeyDown={(e) => handleCellKeyDown(e, idx, 'ref_table')}
+                          onChange={(e) =>
+                            handleUpdate(param.id, { ref_table: e.target.value.toUpperCase() })
+                          }
+                          placeholder="VBAK"
+                          className="w-full h-full px-2 pr-6 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 uppercase text-slate-800"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSearchHelpTarget({ type: 'row', paramId: param.id })}
+                          title="SAP Search Help (F4)"
+                          className="absolute right-1 text-slate-400 hover:text-blue-600 p-1 cursor-pointer"
+                        >
+                          <Search className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </td>
+
+                    {/* Col G: Ref Field */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 6)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 6)}
+                      className={`p-0 border-r border-slate-200 ${
+                        isCellInRange(selectedRange, idx, 6)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
+                    >
+                      <input
+                        type="text"
+                        value={param.ref_field || ''}
+                        data-cell={`${idx}-ref_field`}
+                        onFocus={() => {
+                          if (!selectedRange) {
+                            setSelectedRange({ startRow: idx, startCol: 6, endRow: idx, endCol: 6 });
+                          }
+                        }}
+                        onKeyDown={(e) => handleCellKeyDown(e, idx, 'ref_field')}
+                        onChange={(e) =>
+                          handleUpdate(param.id, { ref_field: e.target.value.toUpperCase() })
+                        }
+                        placeholder="VBELN"
+                        className="w-full h-8 px-2 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 uppercase text-slate-800"
+                      />
+                    </td>
+
+                    {/* Col H: Obligatory */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 7)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 7)}
+                      className={`p-0 border-r border-slate-200 text-center ${
+                        isCellInRange(selectedRange, idx, 7)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
+                    >
+                      <div className="flex items-center justify-center h-8">
+                        <input
+                          type="checkbox"
+                          checked={param.obligatory}
+                          data-cell={`${idx}-obligatory`}
+                          onChange={(e) => handleUpdate(param.id, { obligatory: e.target.checked })}
+                          className="w-4 h-4 accent-red-600 rounded cursor-pointer"
+                        />
+                      </div>
+                    </td>
+
+                    {/* Col I: Default Value */}
+                    <td
+                      onMouseDown={() => handleCellMouseDown(idx, 8)}
+                      onMouseEnter={() => handleCellMouseEnter(idx, 8)}
+                      className={`p-0 border-r border-slate-200 font-sans ${
+                        isCellInRange(selectedRange, idx, 8)
+                          ? 'bg-blue-100 ring-1 ring-blue-500'
+                          : ''
+                      }`}
+                    >
+                      <input
+                        type="text"
+                        value={param.default_val || ''}
+                        data-cell={`${idx}-default_val`}
+                        onFocus={() => {
+                          if (!selectedRange) {
+                            setSelectedRange({ startRow: idx, startCol: 8, endRow: idx, endCol: 8 });
+                          }
+                        }}
+                        onKeyDown={(e) => handleCellKeyDown(e, idx, 'default_val')}
+                        onChange={(e) => handleUpdate(param.id, { default_val: e.target.value })}
+                        placeholder="1000"
+                        className="w-full h-8 px-2 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 text-slate-800"
+                      />
+                    </td>
+
+                    {/* Col J: Order & Delete Actions */}
+                    <td className="py-1 px-1 text-center">
+                      <div className="flex items-center justify-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handleMove(idx, 'up')}
+                          disabled={idx === 0}
+                          title="Move Up"
+                          className="p-1 text-slate-400 hover:text-blue-700 disabled:opacity-20 cursor-pointer"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMove(idx, 'down')}
+                          disabled={idx === spec.selection_params.length - 1}
+                          title="Move Down"
+                          className="p-1 text-slate-400 hover:text-blue-700 disabled:opacity-20 cursor-pointer"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(param.id)}
+                          title="Delete Row"
+                          className="p-1 text-slate-400 hover:text-red-600 cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

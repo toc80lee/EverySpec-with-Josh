@@ -111,6 +111,96 @@ ${business_purpose}
   }
 });
 
+// API endpoint: Fetch SAP Table Schema & Metadata (Standard DDIC or custom tables)
+app.post('/api/fetch-sap-table-schema', async (req, res) => {
+  try {
+    const { tableName } = req.body || {};
+    if (!tableName || typeof tableName !== 'string') {
+      return res.status(400).json({ error: '테이블명을 입력해주세요.' });
+    }
+
+    const cleanTableName = tableName.trim().toUpperCase();
+
+    const systemPrompt = `You are a senior SAP ABAP Data Dictionary (DDIC) and ERP data model architect.
+Given an SAP table name (standard or custom), generate the exact or best-practice SAP Data Dictionary schema.
+Rules:
+1. Provide valid SAP data types: 'CHAR' | 'NUMC' | 'DATS' | 'TIMS' | 'CURR' | 'DEC' | 'UNIT' | 'INT4'.
+2. Provide authentic field names (e.g., MANDT, VBELN, POSNR, MATNR, WERKS, BUKRS, ERDAT, NETWR, WAERK, MENGE, MEINS, etc.).
+3. Mark primary key fields with isKey: true (e.g., client MANDT, document number, item number).
+4. Provide bilingual Korean/English labels (e.g., 'Material Number (자재코드)', 'Sales Order (판매오더 번호)').
+5. Provide the correct SAP functional module: 'SD' | 'MM' | 'FI' | 'CO' | 'PP' | 'PM' | 'QM' | 'COMMON'.
+6. Include 8 to 25 essential fields commonly used in ALV reports for this table.
+7. Return a valid JSON object matching the requested schema.`;
+
+    const userPrompt = `SAP Table: ${cleanTableName}
+Provide the complete DDIC schema metadata and field catalog for SAP table ${cleanTableName}.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: userPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const rawText = response.text?.trim() || '{}';
+    let schemaData: any = null;
+    try {
+      schemaData = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.warn('JSON parse error for table schema', parseErr);
+    }
+
+    if (!schemaData || !Array.isArray(schemaData.fields) || schemaData.fields.length === 0) {
+      schemaData = getFallbackTableSchema(cleanTableName);
+    }
+
+    // Ensure table attribute is uppercase clean
+    schemaData.table = cleanTableName;
+    if (!schemaData.name) {
+      schemaData.name = `${cleanTableName} SAP Table Data`;
+    }
+
+    return res.json({ schema: schemaData });
+  } catch (error: any) {
+    console.warn('Gemini schema fetch issue, using fallback:', error?.message);
+    const cleanTableName = String(req.body?.tableName || 'CUSTOM_TABLE').trim().toUpperCase();
+    const fallbackSchema = getFallbackTableSchema(cleanTableName);
+    return res.json({ schema: fallbackSchema, fallback: true });
+  }
+});
+
+// Helper: Fallback schema generator for arbitrary SAP table names
+function getFallbackTableSchema(table: string) {
+  const t = table.toUpperCase();
+  const isCustom = t.startsWith('Z') || t.startsWith('Y');
+
+  return {
+    table: t,
+    name: isCustom ? `${t}: Custom SAP Table (고객 커스텀 테이블)` : `${t}: SAP ERP Table`,
+    module: t.startsWith('VB') || t.startsWith('KN') ? 'SD' :
+            t.startsWith('EK') || t.startsWith('MA') || t.startsWith('LF') ? 'MM' :
+            t.startsWith('BK') || t.startsWith('BS') || t.startsWith('T0') ? 'FI' :
+            t.startsWith('CS') || t.startsWith('AU') || t.startsWith('CO') ? 'CO' : 'COMMON',
+    description: `SAP Data Dictionary table definition for ${t}`,
+    fields: [
+      { field: 'MANDT', label: 'Client (클라이언트)', datatype: 'CHAR', length: 3, isKey: true, description: 'Client number' },
+      { field: isCustom ? `${t}_KEY` : `${t}_ID`, label: 'Primary ID (식별 키)', datatype: 'CHAR', length: 10, isKey: true, description: 'Primary Record Key' },
+      { field: 'ERDAT', label: 'Created On (생성일자)', datatype: 'DATS', length: 8, isKey: false, description: 'Creation date' },
+      { field: 'ERZET', label: 'Entry Time (생성시간)', datatype: 'TIMS', length: 6, isKey: false, description: 'Time of creation' },
+      { field: 'ERNAM', label: 'Created By (생성자)', datatype: 'CHAR', length: 12, isKey: false, description: 'User who created the record' },
+      { field: 'BUKRS', label: 'Company Code (회사코드)', datatype: 'CHAR', length: 4, isKey: false, description: 'Company code' },
+      { field: 'STATUS', label: 'Processing Status (처리상태)', datatype: 'CHAR', length: 2, isKey: false, description: 'Status code' },
+      { field: 'TEXT1', label: 'Description (내역 텍스트)', datatype: 'CHAR', length: 40, isKey: false, description: 'Item description text' },
+      { field: 'MENGE', label: 'Quantity (수량)', datatype: 'DEC', length: 13, isKey: false, description: 'Quantity in base unit' },
+      { field: 'MEINS', label: 'Base Unit (기본단위)', datatype: 'UNIT', length: 3, isKey: false, description: 'Unit of measure' },
+      { field: 'NETWR', label: 'Net Amount (순금액)', datatype: 'CURR', length: 15, isKey: false, description: 'Net amount in document currency' },
+      { field: 'WAERS', label: 'Currency (통화키)', datatype: 'CHAR', length: 5, isKey: false, description: 'Currency key' },
+    ],
+  };
+}
+
 // API endpoint: Generate realistic SAP ALV mock data records using Gemini model
 app.post('/api/generate-mock-data', async (req, res) => {
   try {

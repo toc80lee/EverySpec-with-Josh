@@ -45,10 +45,15 @@ export const getSapAlvCellStyle = (
   emphasize?: string,
   isKey = false,
   isSelected = false,
-  isZebra = false
+  isZebra = false,
+  isEditable = false
 ) => {
   if (isSelected) {
     return { bg: 'bg-[#fff5cc]', text: 'text-slate-900 font-bold' };
+  }
+  // User request: 변경이 가능한 필드는 노란색 바탕이 아닌 그냥 흰색으로 처리해 주세요.
+  if (isEditable) {
+    return { bg: 'bg-white', text: 'text-slate-900' };
   }
   if (isKey) {
     return { bg: 'bg-[#bce0fd]', text: 'text-slate-900 font-semibold' };
@@ -842,7 +847,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                                     field.emphasize,
                                     isKey,
                                     isSelected,
-                                    isZebra
+                                    isZebra,
+                                    !!field.edit
                                   );
 
                                   return (
@@ -888,6 +894,13 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                                         >
                                           {val !== undefined && val !== null ? String(val) : ''}
                                         </button>
+                                      ) : field.edit ? (
+                                        <input
+                                          type="text"
+                                          value={val !== undefined && val !== null ? String(val) : ''}
+                                          onChange={(e) => handleCellEdit(rIdx, field.fieldname, e.target.value)}
+                                          className="w-full bg-white border border-slate-300 focus:border-blue-500 focus:bg-white px-1 text-xs text-slate-900 rounded-none shadow-2xs"
+                                        />
                                       ) : (
                                         <span>{val !== undefined && val !== null ? String(val) : ''}</span>
                                       )}
@@ -1012,7 +1025,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                                     field.emphasize,
                                     isKey,
                                     isSelected,
-                                    isZebra
+                                    isZebra,
+                                    !!field.edit
                                   );
 
                                   return (
@@ -1040,6 +1054,13 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                                         <span className="text-blue-700 underline font-semibold">
                                           {val !== undefined && val !== null ? String(val) : ''}
                                         </span>
+                                      ) : field.edit ? (
+                                        <input
+                                          type="text"
+                                          value={val !== undefined && val !== null ? String(val) : ''}
+                                          readOnly
+                                          className="w-full bg-white border border-slate-300 focus:border-blue-500 focus:bg-white px-1 text-xs text-slate-900 rounded-none shadow-2xs"
+                                        />
                                       ) : (
                                         <span>{val !== undefined && val !== null ? String(val) : ''}</span>
                                       )}
@@ -1204,7 +1225,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                                 field.emphasize,
                                 isKey,
                                 isSelected,
-                                isZebra
+                                isZebra,
+                                !!field.edit
                               );
 
                               return (
@@ -1278,7 +1300,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                                       type="text"
                                       value={val !== undefined && val !== null ? String(val) : ''}
                                       onChange={(e) => handleCellEdit(rIdx, field.fieldname, e.target.value)}
-                                      className="w-full bg-yellow-50 border border-yellow-300 px-1 text-xs"
+                                      className="w-full bg-white border border-slate-300 focus:border-blue-500 focus:bg-white px-1 text-xs text-slate-900 rounded-none shadow-2xs"
                                     />
                                   ) : (
                                     <span>{val !== undefined && val !== null ? String(val) : ''}</span>

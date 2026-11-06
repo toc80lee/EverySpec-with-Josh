@@ -128,6 +128,16 @@ export const DEFAULT_ALV_TOOLBAR_BUTTONS: AlvToolbarButton[] = [
     separator_before: true,
   },
   {
+    id: 'btn-spreadsheet',
+    function: '&EXPORT',
+    text: 'Spreadsheet',
+    quickinfo: 'Export to Excel Spreadsheet (Ctrl+Shift+F7)',
+    icon: 'ICON_SPREADSHEET',
+    disabled: false,
+    visible: true,
+    is_standard: true,
+  },
+  {
     id: 'btn-send-file',
     function: '&SEND',
     text: 'Local File',
@@ -158,16 +168,6 @@ export const DEFAULT_ALV_TOOLBAR_BUTTONS: AlvToolbarButton[] = [
     visible: true,
     is_standard: true,
     separator_before: true,
-  },
-  {
-    id: 'btn-spreadsheet',
-    function: '&EXPORT',
-    text: 'Spreadsheet',
-    quickinfo: 'Export to Excel Spreadsheet (Ctrl+Shift+F7)',
-    icon: 'ICON_SPREADSHEET',
-    disabled: false,
-    visible: true,
-    is_standard: true,
   },
 ];
 
