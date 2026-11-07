@@ -23,7 +23,12 @@ import {
   Printer,
   X,
   Search,
+  ListOrdered,
+  FileDown,
+  FolderOpen,
 } from 'lucide-react';
+import { PdfExportModal } from './PdfExportModal';
+import { SpecManagerModal } from './SpecManagerModal';
 import {
   ProgramSpec,
   SapModule,
@@ -36,6 +41,7 @@ import {
   SapDataType,
 } from '../types/sap';
 import { FieldCatalogEditor } from './FieldCatalogEditor';
+import { AlvSortEditor } from './AlvSortEditor';
 import { SelectionScreenEditor } from './SelectionScreenEditor';
 import { ToolbarEditor } from './ToolbarEditor';
 import { DataFlowEditor } from './DataFlowEditor';
@@ -63,11 +69,17 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
   // Main Tabs: 1. Program Spec -> 2. Selection Screen -> 3. ALV Grid
   const [mainTab, setMainTab] = useState<'info' | 'selection' | 'alv'>('info');
 
+  // Subtabs for Program Spec (RFQ v1.07 Page 3 & 4):
+  // 1. Basic Information & Specification
+  // 2. Data Flow Diagram (Visual Program Flowchart)
+  const [specSubTab, setSpecSubTab] = useState<'basic' | 'flow'>('basic');
+  const [isSpecManagerOpen, setIsSpecManagerOpen] = useState(false);
+
   // Master-Detail ALV Sub-Grid Selector: Header ALV Grid vs Item ALV Grid
   const [activeGridTab, setActiveGridTab] = useState<'header' | 'item'>('header');
 
-  // ALV Grid Sub Tabs: 1. Layout -> 2. Field Catalog -> 3. Toolbar -> 4. Test Case
-  const [alvSubTab, setAlvSubTab] = useState<'layout' | 'fields' | 'toolbar' | 'tests'>('layout');
+  // ALV Grid Sub Tabs: 1. Layout -> 2. Field Catalog -> 3. Sort -> 4. Toolbar -> 5. Test Case
+  const [alvSubTab, setAlvSubTab] = useState<'layout' | 'fields' | 'sort' | 'toolbar' | 'tests'>('layout');
 
   const [isGeneratingLogic, setIsGeneratingLogic] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
@@ -77,6 +89,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
   // SAP T-Code Naming Standard Validation (Customer Namespace: Z... or Y...)
   const tcodeValidation = useMemo(() => validateSapTCode(spec.tcode), [spec.tcode]);
   const [tcodeAlertNotice, setTcodeAlertNotice] = useState<string | null>(null);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
   // Dynamic Selection Param Addition State & Function
   const [showAddParamModal, setShowAddParamModal] = useState(false);
@@ -504,9 +517,30 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
           </button>
         </div>
 
-        {/* Right side quick actions: Templates Library */}
-        {onOpenTemplates && (
-          <div className="flex items-center gap-1.5 py-1.5">
+        {/* Right side quick actions: Spec Manager, PDF Export & Templates */}
+        <div className="flex items-center gap-1.5 py-1.5">
+          {/* Spec List Button (RFQ v1.08 Page 2) */}
+          <button
+            type="button"
+            onClick={() => setIsSpecManagerOpen(true)}
+            className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 hover:text-blue-700 border border-slate-300 rounded-md transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            title="저장된 Program Spec List를 확인하고, Program ID를 클릭하여 불러오거나 복사합니다."
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-blue-600" />
+            <span>Spec List</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsPdfModalOpen(true)}
+            className="px-2.5 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border border-blue-400/40 rounded-md transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            title="Export specification as a professional PDF using jsPDF"
+          >
+            <FileDown className="w-3.5 h-3.5 text-blue-200" />
+            <span>Export PDF</span>
+          </button>
+
+          {onOpenTemplates && (
             <button
               type="button"
               onClick={onOpenTemplates}
@@ -516,8 +550,8 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
               <Layers className="w-3.5 h-3.5 text-blue-600" />
               <span>Templates</span>
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Editor Content Area */}
@@ -526,14 +560,44 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         {/* MAIN TAB 1: 프로그램 개요 & 로직 (Program Info & Logic)                    */}
         {/* ========================================================================= */}
         {mainTab === 'info' && (
-          <div className="space-y-5 max-w-4xl">
-            {/* Top Header & Alert Notices */}
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">Basic Information & Specification</h3>
-              <p className="text-xs text-slate-500">
-                Define program identification, transaction code, author, and technical specifications according to SAP corporate standards.
-              </p>
+          <div className="space-y-4 max-w-4xl">
+            {/* Program Spec Sub-Tab Navigation (RFQ v1.07 Page 3 & 4) */}
+            <div className="flex items-center gap-1.5 border-b border-slate-200 pb-2.5">
+              <button
+                type="button"
+                onClick={() => setSpecSubTab('basic')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                  specSubTab === 'basic'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Basic Information & Specification</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSpecSubTab('flow')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                  specSubTab === 'flow'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Data Flow Diagram (Visual Program Flowchart)</span>
+              </button>
             </div>
+
+            {specSubTab === 'basic' && (
+              <div className="space-y-5">
+                {/* Top Header & Alert Notices */}
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Basic Information & Specification</h3>
+                  <p className="text-xs text-slate-500">
+                    Define program identification, transaction code, author, and technical specifications according to SAP corporate standards.
+                  </p>
+                </div>
 
             {/* Corporate Governance Standard Deviation Alert Banner */}
             {!tcodeValidation.isValid && (
@@ -625,6 +689,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   <option value="01">01 (Single ALV Grid)</option>
                   <option value="02">02 (Master-Detail ALV)</option>
                   <option value="03">03 (Tree ALV Grid)</option>
+                  <option value="04">04 (Pivot Browser)</option>
                 </select>
               </div>
 
@@ -813,13 +878,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   Business Purpose
                 </label>
 
-                {/* Voice Input Button & Action Bar */}
-                <div className="flex items-center gap-2">
+                {/* Voice Input Button & Action Bar (Icon-only with tooltip, RFQ v1.07 Page 4 & 5) */}
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={businessVoice.toggleListening}
                     disabled={businessVoice.isTranscribing}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                    className={`p-1.5 text-xs font-semibold rounded-md flex items-center justify-center transition-all shadow-2xs cursor-pointer ${
                       businessVoice.isListening
                         ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse ring-2 ring-rose-400'
                         : businessVoice.isTranscribing
@@ -828,27 +893,19 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                     }`}
                     title={
                       businessVoice.isListening
-                        ? 'Finish Recording & Transcribe'
+                        ? '음성 녹음 중... 클릭하여 녹음 완료 및 텍스트 변환'
                         : businessVoice.isTranscribing
-                        ? 'Transcribing...'
-                        : 'Speak Business Purpose (Voice Input)'
+                        ? 'Gemini AI 음성 변환 중...'
+                        : 'Voice Input: 음성으로 업무 목적(Business Purpose) 입력하기'
                     }
+                    aria-label="Voice Input (Speech-to-Text)"
                   >
                     {businessVoice.isListening ? (
-                      <>
-                        <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
-                        <span>Stop (Transcribing...)</span>
-                      </>
+                      <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
                     ) : businessVoice.isTranscribing ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                        <span>AI Transcribing...</span>
-                      </>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
                     ) : (
-                      <>
-                        <Mic className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Voice Input</span>
-                      </>
+                      <Mic className="w-3.5 h-3.5 text-blue-600" />
                     )}
                   </button>
 
@@ -918,13 +975,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   Data Extraction & Logic
                 </label>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* Voice input button */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Voice input button - Icon only with tooltip (RFQ v1.07 Page 4 & 5) */}
                   <button
                     type="button"
                     onClick={logicVoice.toggleListening}
                     disabled={logicVoice.isTranscribing}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                    className={`p-1.5 text-xs font-semibold rounded-md flex items-center justify-center transition-all shadow-2xs cursor-pointer ${
                       logicVoice.isListening
                         ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse ring-2 ring-rose-400'
                         : logicVoice.isTranscribing
@@ -933,27 +990,19 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                     }`}
                     title={
                       logicVoice.isListening
-                        ? 'Finish Recording & Transcribe'
+                        ? '음성 녹음 중... 클릭하여 녹음 완료 및 텍스트 변환'
                         : logicVoice.isTranscribing
-                        ? 'Transcribing...'
-                        : 'Speak Data Extraction Logic (Voice Input)'
+                        ? 'Gemini AI 음성 변환 중...'
+                        : 'Voice Input: 음성으로 추출 로직(Data Extraction & Logic) 입력하기'
                     }
+                    aria-label="Voice Input (Speech-to-Text)"
                   >
                     {logicVoice.isListening ? (
-                      <>
-                        <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
-                        <span>Stop (Transcribing...)</span>
-                      </>
+                      <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
                     ) : logicVoice.isTranscribing ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                        <span>AI Transcribing...</span>
-                      </>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
                     ) : (
-                      <>
-                        <Mic className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Voice Input</span>
-                      </>
+                      <Mic className="w-3.5 h-3.5 text-blue-600" />
                     )}
                   </button>
 
@@ -1051,11 +1100,18 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
               />
             </div>
 
-            {/* Data Flow Diagram & Editor (Located directly below Data Extraction & Logic) */}
-            <DataFlowEditor
-              spec={spec}
-              onChange={(updatedFlow) => onChange({ ...spec, data_flow: updatedFlow })}
-            />
+              </div>
+            )}
+
+            {/* Sub-Tab 2: Data Flow Diagram (Visual Program Flowchart) (RFQ v1.07 Page 3 & 4) */}
+            {specSubTab === 'flow' && (
+              <div className="space-y-4">
+                <DataFlowEditor
+                  spec={spec}
+                  onChange={(updatedFlow) => onChange({ ...spec, data_flow: updatedFlow })}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -1076,56 +1132,6 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 <p className="text-xs text-slate-500">
                   Define input criteria (PARAMETERS & SELECT-OPTIONS) with field names, data types, lengths, and reference tables.
                 </p>
-              </div>
-
-              {/* Dynamic Add Buttons */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nextIdx = spec.selection_params.length + 1;
-                    setNewParamForm({
-                      kind: 'PARAMETER',
-                      name: `P_FLD${nextIdx}`,
-                      datatype: 'CHAR',
-                      length: 10,
-                      text: `Parameter Item ${nextIdx}`,
-                      ref_table: '',
-                      ref_field: '',
-                      obligatory: false,
-                      default_val: '',
-                    });
-                    setShowAddParamModal(true);
-                  }}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Add Parameters field (single value)"
-                >
-                  <Plus className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Parameters</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nextIdx = spec.selection_params.length + 1;
-                    setNewParamForm({
-                      kind: 'SELECT_OPTION',
-                      name: `S_FLD${nextIdx}`,
-                      datatype: 'CHAR',
-                      length: 10,
-                      text: `Selection Range ${nextIdx}`,
-                      ref_table: '',
-                      ref_field: '',
-                      obligatory: false,
-                      default_val: '',
-                    });
-                    setShowAddParamModal(true);
-                  }}
-                  className="px-3 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Add Select-options field (range selection)"
-                >
-                  <Plus className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Select-options</span>
-                </button>
               </div>
             </div>
 
@@ -1515,7 +1521,27 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 </span>
               </button>
 
-              {/* 3. Toolbar */}
+              {/* 3. Sort */}
+              <button
+                onClick={() => setAlvSubTab('sort')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  alvSubTab === 'sort'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <ListOrdered className="w-3.5 h-3.5" />
+                <span>Sort</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    alvSubTab === 'sort' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {activeFieldCatalog.length}
+                </span>
+              </button>
+
+              {/* 4. Toolbar */}
               <button
                 onClick={() => setAlvSubTab('toolbar')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
@@ -1671,7 +1697,33 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
               </div>
             )}
 
-            {/* Sub-Tab 3: Toolbar */}
+            {/* Sub-Tab 3: Sort */}
+            {alvSubTab === 'sort' && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Configure ALV Column Sorting & Sequence
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Reorder ALV column positions (COL_POS) and manage field order (LVC_T_SORT).
+                  </p>
+                </div>
+
+                <AlvSortEditor
+                  spec={{
+                    ...spec,
+                    field_catalog: activeFieldCatalog,
+                    mock_rows: activeMockRows,
+                  }}
+                  onChange={(updatedCatalog, updatedMockRows) => {
+                    updateActiveFieldCatalog(updatedCatalog, updatedMockRows);
+                  }}
+                  onReorder={handleReorderFieldCatalog}
+                />
+              </div>
+            )}
+
+            {/* Sub-Tab 4: Toolbar */}
             {alvSubTab === 'toolbar' && (
               <div className="space-y-4">
                 <div>
@@ -1925,6 +1977,21 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
           </div>
         )}
       </div>
+
+      {/* jsPDF Specification Export Modal */}
+      <PdfExportModal
+        isOpen={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        spec={spec}
+      />
+
+      {/* Program Spec Manager Modal (RFQ v1.07 Page 1) */}
+      <SpecManagerModal
+        currentSpec={spec}
+        isOpen={isSpecManagerOpen}
+        onClose={() => setIsSpecManagerOpen(false)}
+        onSelectSpec={(newSpec) => onChange(newSpec)}
+      />
     </div>
   );
 };

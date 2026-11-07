@@ -120,12 +120,13 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
 
   const handleSaveNode = useCallback(
     (updatedNode: CanvasNode) => {
-      const updated = nodes.map((n) => (n.id === updatedNode.id ? updatedNode : n));
+      const fitted = autoFitNode(updatedNode);
+      const updated = nodes.map((n) => (n.id === fitted.id ? fitted : n));
       updateGraph(updated, edges);
-      setNotice(`Node '${updatedNode.label.split('\n')[0]}' updated.`);
+      setNotice(`노드 '${fitted.label.split('\n')[0]}' 수정 및 크기 최적화 완료.`);
       setTimeout(() => setNotice(null), 3000);
     },
-    [nodes, edges, updateGraph]
+    [nodes, edges, autoFitNode, updateGraph]
   );
 
   const handleDeleteNode = useCallback(
@@ -293,9 +294,11 @@ export const InteractiveDataFlowCanvas: React.FC<InteractiveDataFlowCanvasProps>
       height,
     };
 
-    updateGraph([...nodes, newNode], edges);
-    setSelectedNodeId(newNode.id);
-    setEditingNode(newNode);
+    const fittedNode = autoFitNode(newNode);
+    updateGraph([...nodes, fittedNode], edges);
+    setSelectedNodeId(fittedNode.id);
+    setNotice(`신규 ${type} 노드가 추가되었습니다. 더블클릭하여 텍스트를 수정하거나 포트(●)를 드래그하여 연결할 수 있습니다.`);
+    setTimeout(() => setNotice(null), 3500);
   };
 
   // Start dragging a node

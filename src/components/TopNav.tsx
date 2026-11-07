@@ -1,9 +1,10 @@
-import React from 'react';
-import { Layers, FileCode, FileText, SplitSquareVertical, Sparkles, Printer } from 'lucide-react';
+import React, { useState } from 'react';
+import { Layers, FileCode, FileText, SplitSquareVertical, Sparkles, Printer, FileDown, User } from 'lucide-react';
 import { ProgramSpec } from '../types/sap';
 import { SAMPLE_SPECS } from '../data/sampleSpecs';
 import { PREDEFINED_TEMPLATES } from '../data/predefinedTemplates';
 import { getSavedUserTemplates } from '../utils/templateStorage';
+import { getCurrentUser, setCurrentUser, PRESET_USERS, CurrentUser } from '../utils/authStorage';
 
 export type MainWorkspaceMode = 'split' | 'mockup_only' | 'editor_only' | 'abap_code' | 'document';
 
@@ -15,6 +16,7 @@ interface TopNavProps {
   onNewSpec: () => void;
   onTriggerPrint?: () => void;
   onOpenTemplates?: () => void;
+  onExportPdf?: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -25,7 +27,11 @@ export const TopNav: React.FC<TopNavProps> = ({
   onNewSpec,
   onTriggerPrint,
   onOpenTemplates,
+  onExportPdf,
 }) => {
+  const [user, setUser] = useState<CurrentUser>(getCurrentUser());
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
   return (
     <header className="no-print flex items-center justify-between gap-8 px-6 py-3.5 bg-slate-900 border-b border-slate-800 text-white shrink-0">
       {/* Zone 1: Brand Wordmark (Single text element) */}
@@ -150,23 +156,65 @@ export const TopNav: React.FC<TopNavProps> = ({
           )}
         </select>
 
-        {/* Templates Library Modal Button */}
-        <button
-          type="button"
-          onClick={onOpenTemplates}
-          className="px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 shadow-xs flex items-center gap-1.5 cursor-pointer"
-          title="Browse, load, and save predefined SAP program templates (Header-Detail, Single-Table, OData-based)"
-        >
-          <Layers className="w-3.5 h-3.5 text-blue-400" />
-          <span>Templates</span>
-        </button>
-
         <button
           onClick={onNewSpec}
-          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 shadow-xs flex items-center gap-1 cursor-pointer"
+          className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 shadow-xs flex items-center gap-1 cursor-pointer"
         >
           <span>+ New</span>
         </button>
+
+        {/* User Login & Switcher */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs flex items-center gap-2 transition-colors cursor-pointer"
+            title="현재 로그인 사용자 변경"
+          >
+            <div className="w-5 h-5 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center text-[10px]">
+              {user.name.charAt(0)}
+            </div>
+            <div className="text-left hidden xl:block">
+              <div className="font-bold text-white text-[11px] leading-none">{user.name}</div>
+              <div className="text-[9px] text-blue-300 leading-none mt-0.5">{user.role.split('/')[0]}</div>
+            </div>
+            <span className="text-[10px] text-slate-400">▼</span>
+          </button>
+
+          {isUserMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-2xl border border-slate-200 p-2 z-50 text-slate-800">
+              <div className="text-[11px] font-bold text-slate-500 px-2 py-1 border-b border-slate-100">
+                로그인 사용자 계정
+              </div>
+              <div className="py-1 space-y-0.5">
+                {PRESET_USERS.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => {
+                      setCurrentUser(u);
+                      setUser(u);
+                      setIsUserMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                      user.name === u.name
+                        ? 'bg-blue-50 text-blue-900 font-bold border border-blue-200'
+                        : 'hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold text-xs">{u.name}</div>
+                      <div className="text-[10px] text-slate-500">{u.role}</div>
+                    </div>
+                    {user.name === u.name && (
+                      <span className="text-blue-600 font-bold text-xs">✓</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

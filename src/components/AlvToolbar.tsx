@@ -2,9 +2,11 @@ import React from 'react';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { AlvToolbarButton, ProgramSpec } from '../types/sap';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
+import { SapGuiTheme } from '../data/sapGuiThemes';
 
 interface AlvToolbarProps {
   spec: ProgramSpec;
+  theme?: SapGuiTheme;
   statusSummaries: {
     statusKey: string;
     count: number;
@@ -289,6 +291,7 @@ export const SapToolbarIcon: React.FC<{ func: string; iconName?: string }> = ({ 
 
 export const AlvToolbar: React.FC<AlvToolbarProps> = ({
   spec,
+  theme = 'blue_crystal',
   statusSummaries,
   selectedStatusFilters,
   onToggleStatusFilter,
@@ -319,13 +322,9 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
         onOpenDetail();
         break;
       case '&GRAPHIC':
-        alert('비즈니스 그래픽 모드가 선택되었습니다.');
-        break;
       case '&SELECT_MODE':
-        alert('선택 모드: 다중 행 및 분할 뷰 모드');
-        break;
       case '&HIERARCHY':
-        alert('원가요소 그룹 세트 노드 계층구조 트리 및 집계');
+        if (onCustomAction) onCustomAction(btn);
         break;
       case '&SORT_ASC':
         onSort(true);
@@ -350,16 +349,12 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
         onExport();
         break;
       case '&LAYOUT':
-        alert('ALV 레이아웃 설정 (LVC_S_LAYO): 현재 레이아웃 저장 및 변형 선택');
-        break;
       case '&INFO':
         onInfo();
         break;
       default:
         if (onCustomAction) {
           onCustomAction(btn);
-        } else {
-          alert(`사용자 기능 실행: [${btn.text}] (${btn.function})\n${btn.quickinfo}`);
         }
         break;
     }
@@ -394,47 +389,96 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
     return <span className="text-[10px] font-bold text-slate-700 font-mono">●</span>;
   };
 
+  // Theme-aware styles for toolbar buttons
+  const getBtnProps = (disabled: boolean) => {
+    if (theme === 'belize') {
+      return {
+        className: `h-6 px-1.5 rounded flex items-center justify-center border transition-all shadow-2xs select-none ${
+          disabled
+            ? 'opacity-40 border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+            : 'border-slate-300 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 cursor-pointer'
+        }`,
+        style: { minWidth: '24px' },
+      };
+    }
+    if (theme === 'quartz') {
+      return {
+        className: `h-6 px-1.5 rounded-sm flex items-center justify-center border transition-all shadow-2xs select-none ${
+          disabled
+            ? 'opacity-40 border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+            : 'border-[#d1d5db] bg-white hover:bg-blue-50/50 hover:border-[#0a6ed1] active:bg-blue-100/40 text-slate-800 cursor-pointer'
+        }`,
+        style: { minWidth: '24px' },
+      };
+    }
+    return {
+      className: `h-6 px-1 rounded flex items-center justify-center border transition-all shadow-2xs select-none ${
+        disabled
+          ? 'opacity-40 border-[#d1c29b] cursor-not-allowed'
+          : 'border-[#c0a662] hover:brightness-105 active:scale-95 cursor-pointer'
+      }`,
+      style: {
+        minWidth: '24px',
+        background: disabled
+          ? '#ede4cc'
+          : 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)',
+      },
+    };
+  };
+
+  const toolbarRootBg = theme === 'belize'
+    ? 'bg-white border-b border-[#d9e2ec]'
+    : theme === 'quartz'
+    ? 'bg-white border-b border-[#e5e7eb]'
+    : 'bg-[#e4eff9] border-b border-[#a4bedb]';
+
+  const separatorBg = theme === 'belize'
+    ? 'bg-[#cbd5e1]'
+    : theme === 'quartz'
+    ? 'bg-[#e2e8f0]'
+    : 'bg-[#a4bedb]';
+
+  const rightDividerBorder = theme === 'belize'
+    ? 'border-[#d9e2ec]'
+    : theme === 'quartz'
+    ? 'border-[#e5e7eb]'
+    : 'border-[#b0c8e0]';
+
   return (
-    <div className="flex items-center justify-between bg-[#e4eff9] px-2 py-1 border-b border-[#a4bedb] gap-1 flex-wrap overflow-x-auto shadow-xs">
+    <div className={`flex items-center justify-between px-2 py-1 gap-1 flex-wrap overflow-x-auto shadow-xs ${toolbarRootBg}`}>
       {/* 1. ALV Toolbar Buttons (Analyzed 16 standard buttons + custom buttons) */}
       <div className="flex items-center gap-1 flex-wrap">
-        {visibleButtons.map((btn) => (
-          <React.Fragment key={btn.id}>
-            {/* Optional Separator Before Button */}
-            {btn.separator_before && (
-              <div className="h-4 w-px bg-[#a4bedb] mx-0.5" />
-            )}
-
-            {/* Raised SAP GUI Classic Yellow Button */}
-            <button
-              onClick={() => handleButtonClick(btn)}
-              disabled={btn.disabled}
-              title={`${btn.text} (${btn.function})\n${btn.quickinfo}`}
-              className={`h-6 px-1 rounded flex items-center justify-center border transition-all shadow-2xs select-none ${
-                btn.disabled
-                  ? 'opacity-40 border-[#d1c29b] cursor-not-allowed'
-                  : 'border-[#c0a662] hover:brightness-105 active:scale-95 cursor-pointer'
-              }`}
-              style={{
-                minWidth: '24px',
-                background: btn.disabled
-                  ? '#ede4cc'
-                  : 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)',
-              }}
-            >
-              <SapToolbarIcon func={btn.function} iconName={btn.icon} />
-              {!btn.is_standard && btn.text && (
-                <span className="text-[11px] font-medium text-slate-800 ml-1 font-sans">
-                  {btn.text}
-                </span>
+        {visibleButtons.map((btn) => {
+          const btnStyling = getBtnProps(!!btn.disabled);
+          return (
+            <React.Fragment key={btn.id}>
+              {/* Optional Separator Before Button */}
+              {btn.separator_before && (
+                <div className={`h-4 w-px mx-0.5 ${separatorBg}`} />
               )}
-            </button>
-          </React.Fragment>
-        ))}
+
+              {/* Styled SAP Toolbar Button */}
+              <button
+                onClick={() => handleButtonClick(btn)}
+                disabled={btn.disabled}
+                title={`${btn.text} (${btn.function})\n${btn.quickinfo}`}
+                className={btnStyling.className}
+                style={btnStyling.style}
+              >
+                <SapToolbarIcon func={btn.function} iconName={btn.icon} />
+                {!btn.is_standard && btn.text && (
+                  <span className="text-[11px] font-medium ml-1 font-sans">
+                    {btn.text}
+                  </span>
+                )}
+              </button>
+            </React.Fragment>
+          );
+        })}
       </div>
 
       {/* 2. Right Section: Sta. Status Count Filter Buttons at the VERY END! */}
-      <div className="flex items-center gap-1.5 ml-auto pl-2 border-l border-[#b0c8e0]">
+      <div className={`flex items-center gap-1.5 ml-auto pl-2 border-l ${rightDividerBorder}`}>
         {/* Active text filter badge */}
         {filterQuery && (
           <div className="flex items-center gap-1 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded text-[10px] text-amber-900">
@@ -449,15 +493,23 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
             onClick={onGenerateMockData}
             disabled={isGeneratingMockData}
             title="Generate realistic SAP sample records with Gemini AI based on field catalog"
-            className="h-6 px-2 rounded flex items-center justify-center gap-1 border border-[#c0a662] shadow-2xs text-[10px] font-bold text-slate-800 hover:brightness-105 active:scale-95 cursor-pointer disabled:opacity-40 transition-all select-none"
-            style={{
-              background: 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)',
-            }}
+            className={`h-6 px-2 rounded flex items-center justify-center gap-1 shadow-2xs text-[10px] font-bold hover:brightness-105 active:scale-95 cursor-pointer disabled:opacity-40 transition-all select-none border ${
+              theme === 'belize'
+                ? 'bg-[#354a5f] text-white border-[#273747]'
+                : theme === 'quartz'
+                ? 'bg-[#0a6ed1] text-white border-[#085db2]'
+                : 'border-[#c0a662] text-slate-800'
+            }`}
+            style={
+              theme === 'blue_crystal'
+                ? { background: 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)' }
+                : undefined
+            }
           >
             {isGeneratingMockData ? (
-              <Loader2 className="w-3 h-3 animate-spin text-slate-700" />
+              <Loader2 className="w-3 h-3 animate-spin text-current" />
             ) : (
-              <Sparkles className="w-3 h-3 text-amber-700" />
+              <Sparkles className={`w-3 h-3 ${theme === 'blue_crystal' ? 'text-amber-700' : 'text-amber-300'}`} />
             )}
             <span>{isGeneratingMockData ? 'Generating...' : 'Mock Data'}</span>
           </button>
@@ -468,6 +520,29 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
           <div className="flex items-center gap-1" title="Sta. 신호등 상태 필터 (다중 선택 지원: 클릭 시 해당 상태 표시/숨김 토글)">
             {statusSummaries.map((s) => {
               const isSelected = selectedStatusFilters.includes(s.statusKey);
+              let btnClass = '';
+              let btnStyle: React.CSSProperties | undefined = undefined;
+
+              if (theme === 'belize') {
+                btnClass = isSelected
+                  ? 'bg-[#354a5f] text-white border-[#273747] ring-1 ring-[#354a5f] font-bold'
+                  : 'bg-white border-slate-300 opacity-50 hover:opacity-80 grayscale text-slate-500';
+              } else if (theme === 'quartz') {
+                btnClass = isSelected
+                  ? 'bg-[#0a6ed1] text-white border-[#085db2] ring-1 ring-[#0a6ed1] font-bold'
+                  : 'bg-white border-[#e5e7eb] opacity-50 hover:opacity-80 grayscale text-slate-500';
+              } else {
+                // blue_crystal
+                btnClass = isSelected
+                  ? 'border-[#7a5814] font-extrabold text-slate-900 ring-1 ring-amber-500 scale-100'
+                  : 'border-slate-300 opacity-40 hover:opacity-75 grayscale text-slate-400 scale-95';
+                btnStyle = {
+                  background: isSelected
+                    ? 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)'
+                    : '#e2e8f0',
+                };
+              }
+
               return (
                 <button
                   key={s.statusKey}
@@ -475,21 +550,13 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
                   title={`Sta. [${s.label}] 필터: ${s.count}건 (${
                     isSelected ? '선택됨 (출력 중) - 클릭시 숨김' : '해제됨 (숨겨짐) - 클릭시 출력'
                   })`}
-                  className={`h-6 px-1.5 rounded flex items-center gap-1 border transition-all cursor-pointer shadow-2xs select-none ${
-                    isSelected
-                      ? 'border-[#7a5814] font-extrabold text-slate-900 ring-1 ring-amber-500 scale-100'
-                      : 'border-slate-300 opacity-40 hover:opacity-75 grayscale text-slate-400 scale-95'
-                  }`}
-                  style={{
-                    background: isSelected
-                      ? 'linear-gradient(to bottom, #fffdf2 0%, #fae6a6 50%, #f4d983 100%)'
-                      : '#e2e8f0',
-                  }}
+                  className={`h-6 px-1.5 rounded flex items-center gap-1 border transition-all cursor-pointer shadow-2xs select-none ${btnClass}`}
+                  style={btnStyle}
                 >
                   {/* Exact Sta. Icon */}
                   {renderStaIcon(s.iconType)}
                   {/* Count of rows with this Sta. */}
-                  <span className={`text-[11px] font-bold font-mono leading-none ${isSelected ? 'text-slate-900' : 'text-slate-500'}`}>
+                  <span className={`text-[11px] font-bold font-mono leading-none ${isSelected && (theme === 'belize' || theme === 'quartz') ? 'text-white' : isSelected ? 'text-slate-900' : 'text-slate-500'}`}>
                     {s.count}
                   </span>
                 </button>

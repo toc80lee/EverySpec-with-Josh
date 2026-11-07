@@ -17,12 +17,14 @@ import {
   FileText,
   Sliders,
   Table,
+  FileDown,
 } from 'lucide-react';
 import { ProgramSpec, AlvField, TestCase } from '../types/sap';
 import { generateSpecMarkdown, downloadFile, exportFieldCatalogCsv } from '../utils/specExport';
 import { InteractiveDataFlowCanvas } from './InteractiveDataFlowCanvas';
 import { getSapAlvCellStyle } from './SapGuiMockup';
 import { validateSapTCode } from '../utils/sapValidation';
+import { PdfExportModal } from './PdfExportModal';
 
 interface SpecDocumentViewProps {
   spec: ProgramSpec;
@@ -42,6 +44,7 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
   const [includeMockSnapshot, setIncludeMockSnapshot] = useState(true);
   const [includeItemGrid, setIncludeItemGrid] = useState(true);
   const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
   // Pagination & Page-flipping state
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -289,17 +292,24 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
             </label>
           </div>
 
-          {/* Primary Action: Print to PDF */}
+          {/* Primary Action: jsPDF Export */}
+          <button
+            onClick={() => setIsPdfModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-blue-900/40 cursor-pointer border border-blue-400/30"
+            title="jsPDF를 사용하여 사양서를 전문적으로 포맷팅된 PDF 파일로 즉시 내보냅니다."
+          >
+            <FileDown className="w-3.5 h-3.5 text-blue-200" />
+            <span>PDF 내보내기 (jsPDF)</span>
+          </button>
+
+          {/* Secondary Action: Browser Print */}
           <button
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-blue-900/30 cursor-pointer"
-            title="브라우저 인쇄 대화상자를 열어 PDF로 저장하거나 인쇄합니다 (단축키: Ctrl + P / Cmd + P)"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
+            title="브라우저 인쇄 대화상자를 열어 인쇄합니다 (단축키: Ctrl + P / Cmd + P)"
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span>인쇄 / PDF 저장</span>
-            <kbd className="ml-1 text-[9px] bg-blue-700/80 px-1 py-0.2 rounded font-mono text-blue-200">
-              Ctrl+P
-            </kbd>
+            <Printer className="w-3.5 h-3.5 text-slate-400" />
+            <span>인쇄 (Print)</span>
           </button>
 
           {/* Markdown Download */}
@@ -1535,6 +1545,13 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
           })()}
         </div>
       </div>
+
+      {/* jsPDF Specification Export Modal */}
+      <PdfExportModal
+        isOpen={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        spec={spec}
+      />
     </div>
   );
 };

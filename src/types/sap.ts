@@ -162,9 +162,17 @@ export interface SubAlvGridConfig {
   foreign_key?: string;    // e.g. "VBELN" to link to header row
 }
 
+export interface SpecChangeHistoryItem {
+  id: string;
+  version: string;         // e.g. "v1.0", "v1.1", "v1.2"
+  changed_at: string;      // YYYY-MM-DD HH:mm:ss
+  author: string;          // User who made the change
+  comment: string;         // Change description
+}
+
 export interface ProgramSpec {
   id: string;
-  sample_type?: string;    // e.g. "01", "02", "03"
+  sample_type?: string;    // e.g. "01", "02", "03", "04"
   program_id: string;      // e.g. ZR_CUSTOM_REPORT
   tcode: string;           // e.g. ZREP01
   title: string;           // e.g. 영업 오더 진행 및 출하 모니터링
@@ -185,6 +193,8 @@ export interface ProgramSpec {
   mock_rows: Record<string, any>[];
   error_logs?: AlvErrorLog[];
   item_grid?: SubAlvGridConfig; // For Master-Detail ALV (sample_type === '02')
+  is_system?: boolean;          // Built-in system sample spec (cannot be deleted)
+  change_history?: SpecChangeHistoryItem[]; // Revision change audit trail
 }
 
 export type TemplateCategory = 'Single-Table' | 'Header-Detail' | 'OData-based' | 'Interface / Batch' | 'Custom';

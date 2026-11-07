@@ -7,11 +7,13 @@ import { SapGuiMockup } from './components/SapGuiMockup';
 import { AbapCodeGenerator } from './components/AbapCodeGenerator';
 import { SpecDocumentView } from './components/SpecDocumentView';
 import { ProgramTemplateModal } from './components/ProgramTemplateModal';
+import { PdfExportModal } from './components/PdfExportModal';
 
 export default function App() {
   const [currentSpec, setCurrentSpec] = useState<ProgramSpec>(SAMPLE_SPECS[0]);
   const [workspaceMode, setWorkspaceMode] = useState<MainWorkspaceMode>('split');
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [isPdfExportModalOpen, setIsPdfExportModalOpen] = useState(false);
 
   // Create new blank specification
   const handleNewSpec = () => {
@@ -219,6 +221,7 @@ export default function App() {
         onNewSpec={handleNewSpec}
         onTriggerPrint={handleTriggerPrint}
         onOpenTemplates={() => setIsTemplateModalOpen(true)}
+        onExportPdf={() => setIsPdfExportModalOpen(true)}
       />
 
       {/* 2. Main Workspace Viewport */}
@@ -291,6 +294,13 @@ export default function App() {
           setCurrentSpec(s);
           setIsTemplateModalOpen(false);
         }}
+      />
+
+      {/* jsPDF Specification Export Modal */}
+      <PdfExportModal
+        isOpen={isPdfExportModalOpen}
+        onClose={() => setIsPdfExportModalOpen(false)}
+        spec={currentSpec}
       />
     </div>
   );

@@ -16,12 +16,17 @@ import {
   Plus,
   Sparkles,
   Loader2,
+  Palette,
+  Settings,
 } from 'lucide-react';
 import { ProgramSpec, AlvField, SelectionParameter, AlvErrorLog } from '../types/sap';
 import { SapMultipleSelectionModal } from './SapMultipleSelectionModal';
 import { DrilldownModal } from './DrilldownModal';
 import { AlvDetailModal } from './AlvDetailModal';
 import { AlvToolbar } from './AlvToolbar';
+import { SapPivotBrowser } from './SapPivotBrowser';
+import { SapThemeSettingsModal } from './SapThemeSettingsModal';
+import { SapGuiTheme, SAP_GUI_THEMES, DEFAULT_SAP_THEME } from '../data/sapGuiThemes';
 import { downloadFile } from '../utils/specExport';
 
 interface SapGuiMockupProps {
@@ -233,6 +238,34 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
     text: `Data loaded (${spec.mock_rows?.length || 0} rows displayed)`,
     type: 'S',
   });
+
+  // SAP GUI Theme State (Blue Crystal, Belize, Quartz)
+  const [currentTheme, setCurrentTheme] = useState<SapGuiTheme>(() => {
+    try {
+      const saved = localStorage.getItem('sap_gui_mockup_theme') as SapGuiTheme;
+      if (saved && SAP_GUI_THEMES[saved]) return saved;
+    } catch {
+      // localStorage unavailable in some contexts
+    }
+    return DEFAULT_SAP_THEME;
+  });
+  const [isThemeSettingsOpen, setIsThemeSettingsOpen] = useState<boolean>(false);
+
+  const handleSelectTheme = (newTheme: SapGuiTheme) => {
+    setCurrentTheme(newTheme);
+    try {
+      localStorage.setItem('sap_gui_mockup_theme', newTheme);
+    } catch {
+      // localStorage error handling
+    }
+    setStatusMessage({
+      text: `SAP GUI Theme changed to [${SAP_GUI_THEMES[newTheme].name}] (${SAP_GUI_THEMES[newTheme].releaseBadge}).`,
+      type: 'S',
+    });
+  };
+
+  const themeInfo = SAP_GUI_THEMES[currentTheme] || SAP_GUI_THEMES[DEFAULT_SAP_THEME];
+  const themeStyles = themeInfo.styles;
 
   // Modals
   const [activeParamForMulti, setActiveParamForMulti] = useState<SelectionParameter | null>(null);
@@ -557,29 +590,40 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#dbe7f5] rounded-xl overflow-hidden border border-[#9bbadb] shadow-xl font-sans select-none relative">
-      {/* 1. SAP GUI Classic Sky Blue Gradient Titlebar */}
+    <div className={`flex flex-col h-full rounded-xl overflow-hidden shadow-xl font-sans select-none relative border transition-colors duration-200 ${themeStyles.containerBg} ${themeStyles.containerBorder}`}>
+      {/* 1. SAP GUI Titlebar with Dynamic Theme */}
       <div
-        className="flex items-center justify-between px-3 py-1.5 text-slate-900 border-b border-[#9bbadb] shadow-xs"
-        style={{
-          background: 'linear-gradient(to bottom, #d8e8f8 0%, #b8d4f0 40%, #c8ddf4 100%)',
-        }}
+        className={`flex items-center justify-between px-3 py-1.5 border-b shadow-xs transition-colors duration-200 ${themeStyles.titleBarBorder}`}
+        style={themeStyles.titleBarStyle}
       >
         <div className="flex items-center gap-2">
-          <span className="font-bold italic text-sm text-[#0f2238] tracking-tight drop-shadow-xs">
+          <span className={`font-bold italic text-sm tracking-tight drop-shadow-xs ${themeStyles.titleBarText}`}>
             {spec.title}
           </span>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-slate-700 font-medium">
-          <span className="font-mono text-[11px] opacity-80">[{spec.program_id}]</span>
+        <div className={`flex items-center gap-2 text-xs font-medium ${themeStyles.titleBarSubtext}`}>
+          {/* Quick Theme Switcher Trigger */}
+          <button
+            type="button"
+            onClick={() => setIsThemeSettingsOpen(true)}
+            title="SAP GUI Theme Settings (Blue Crystal, Belize, Quartz)"
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border border-current/30 hover:border-current bg-white/10 hover:bg-white/20 transition-all cursor-pointer backdrop-blur-xs"
+          >
+            <Palette className="w-3.5 h-3.5" />
+            <span>Theme: {themeInfo.name}</span>
+            <Settings className="w-3 h-3 opacity-70 ml-0.5" />
+          </button>
+
+          <span className="opacity-40">|</span>
+          <span className="font-mono text-[11px] opacity-90">[{spec.program_id}]</span>
           <span className="opacity-40">|</span>
           <span>{spec.target_sap_release}</span>
         </div>
       </div>
 
-      {/* 2. Standard Application Sub-Toolbar with Execute icon */}
-      <div className="flex items-center justify-between bg-[#dbe7f5] px-3 py-1 border-b border-[#a4bedb] gap-2">
+      {/* 2. Standard Application Sub-Toolbar with Execute icon and Theme quick selector */}
+      <div className={`flex items-center justify-between px-3 py-1 border-b gap-2 flex-wrap transition-colors duration-200 ${themeStyles.subToolbarBg} ${themeStyles.subToolbarBorder} ${themeStyles.subToolbarText}`}>
         <div className="flex items-center gap-2">
           {/* SAP Iconic Clock with Green Checkmark (Execute F8) */}
           <button
@@ -615,15 +659,37 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
               <span>{isGeneratingMockData ? 'Generating Mock Data...' : 'Generate Mock Data'}</span>
             </button>
           )}
+
+          {/* Quick 1-click theme switcher pills */}
+          <div className="hidden lg:flex items-center gap-1 pl-2 border-l border-slate-300/60" title="SAP GUI Theme quick switcher">
+            <span className="text-[10px] text-slate-500 font-medium mr-0.5 flex items-center gap-0.5">
+              <Palette className="w-3 h-3 text-slate-400" />
+              Theme:
+            </span>
+            {(['blue_crystal', 'belize', 'quartz'] as SapGuiTheme[]).map((thm) => (
+              <button
+                key={thm}
+                type="button"
+                onClick={() => handleSelectTheme(thm)}
+                className={`px-2 py-0.5 text-[10px] rounded transition-all cursor-pointer border ${
+                  currentTheme === thm
+                    ? 'bg-blue-600 text-white border-blue-700 font-bold shadow-2xs'
+                    : 'bg-white/80 hover:bg-white text-slate-700 border-slate-300'
+                }`}
+              >
+                {SAP_GUI_THEMES[thm].name}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* View Switcher: Selection vs ALV Grid */}
-        <div className="flex items-center gap-1 bg-[#cbdcf0] p-0.5 rounded border border-[#a4bedb]">
+        <div className={`flex items-center gap-1 p-0.5 rounded border transition-colors duration-200 ${themeStyles.switcherContainerBg}`}>
           <button
             onClick={() => setScreenMode('selection')}
             className={`px-2.5 py-0.5 text-[11px] rounded transition-colors flex items-center gap-1 cursor-pointer ${
               screenMode === 'selection'
-                ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                ? `${themeStyles.switcherActiveBg} font-semibold shadow-xs`
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -634,7 +700,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
             onClick={() => setScreenMode('alv')}
             className={`px-2.5 py-0.5 text-[11px] rounded transition-colors flex items-center gap-1 cursor-pointer ${
               screenMode === 'alv'
-                ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                ? `${themeStyles.switcherActiveBg} font-semibold shadow-xs`
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -644,10 +710,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
         </div>
       </div>
 
-      {/* 3. Authentic SAP Classic Yellow / Amber ALV Toolbar */}
+      {/* 3. Authentic SAP ALV Toolbar with Dynamic Theme */}
       {screenMode === 'alv' && (
         <AlvToolbar
           spec={spec}
+          theme={currentTheme}
           statusSummaries={statusSummaries}
           selectedStatusFilters={selectedStatusFilters}
           onToggleStatusFilter={handleToggleStatusFilter}
@@ -682,11 +749,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
       {/* 4. Main Body: ALV Grid or Selection Screen */}
       <div className="flex-1 flex flex-col overflow-hidden bg-white relative">
         {screenMode === 'selection' ? (
-          /* Selection Screen */
-          <div className="flex-1 p-5 overflow-y-auto space-y-4 bg-[#ece9d8]">
-            <div className="border border-slate-400 bg-[#f4f2e6] rounded p-4 shadow-xs max-w-2xl">
-              <div className="font-semibold text-xs text-slate-800 mb-3 border-b border-slate-300 pb-1 flex items-center justify-between">
-                <span>기본 조회 조건 (Selection Criteria)</span>
+          /* Selection Screen with Theme styling */
+          <div className={`flex-1 p-5 overflow-y-auto space-y-4 transition-colors duration-200 ${themeStyles.selectionBoxBg}`}>
+            <div className={`border rounded p-4 shadow-xs max-w-2xl bg-white ${themeStyles.selectionBoxBorder}`}>
+              <div className={`font-semibold text-xs mb-3 border-b pb-1 flex items-center justify-between ${themeStyles.selectionBoxBorder} text-slate-800`}>
+                <span className="font-bold">기본 조회 조건 (Selection Criteria)</span>
                 <span className="font-mono text-[10px] text-slate-500">
                   BLOCK b1 WITH FRAME TITLE TEXT-001
                 </span>
@@ -743,9 +810,23 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
             </div>
           </div>
         ) : (
-          /* ALV Grid Container: Master-Detail Split or Single ALV */
+          /* ALV Grid Container: Master-Detail Split or Single ALV or 04 Pivot Browser */
           <div className="flex-1 flex flex-col overflow-hidden relative">
-            {isMasterDetail && spec.item_grid ? (
+            {spec.sample_type === '04' ? (
+              <SapPivotBrowser
+                spec={spec}
+                theme={currentTheme}
+                onDrilldown={(tcode, val) => {
+                  setDrilldownInfo({
+                    tcode,
+                    fieldValue: val,
+                    fieldName: 'HKONT',
+                    fieldLabel: '계정과목 (Hauptbuchkonto)',
+                    rowRecord: { HKONT: val },
+                  });
+                }}
+              />
+            ) : isMasterDetail && spec.item_grid ? (
               /* ============================================================= */
               /* MASTER-DETAIL ALV: TOP (HEADER) + BOTTOM (ITEM) PANE           */
               /* ============================================================= */
@@ -770,9 +851,9 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                   {/* Header Grid Table */}
                   <div className="flex-1 overflow-auto">
                     <table className="w-full border-collapse text-xs font-sans whitespace-nowrap">
-                      <thead className="sticky top-0 z-10 bg-[#d8e4f0] border-b border-[#9bbadb] text-slate-900">
+                      <thead className={`sticky top-0 z-10 ${themeStyles.gridHeaderBg} border-b ${themeStyles.gridHeaderBorder} ${themeStyles.gridHeaderText}`}>
                         <tr>
-                          <th className="w-8 px-1 py-1 border-r border-[#9bbadb] bg-[#c8d8ea] text-center">
+                          <th className={`w-8 px-1 py-1 border-r ${themeStyles.gridHeaderBorder} ${themeStyles.gridCornerBg} text-center`}>
                             <div className="w-3.5 h-3.5 mx-auto border border-slate-600 bg-white flex items-center justify-center">
                               <span className="text-[9px] text-blue-900 leading-none font-bold">▶</span>
                             </div>
@@ -781,8 +862,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                             <th
                               key={field.id || field.fieldname}
                               style={{ minWidth: Math.max(field.outputlen * 9, 65) }}
-                              className={`px-2 py-1.5 border-r border-[#9bbadb] text-left font-semibold text-xs ${
-                                field.key ? 'bg-[#bce0fd] text-slate-900' : 'bg-[#d8e4f0] text-slate-900'
+                              className={`px-2 py-1.5 border-r ${themeStyles.gridHeaderBorder} text-left font-semibold text-xs ${
+                                field.key ? 'bg-[#bce0fd] text-slate-900' : `${themeStyles.gridHeaderBg} ${themeStyles.gridHeaderText}`
                               }`}
                             >
                               <div className="flex items-center justify-between gap-1">
@@ -967,6 +1048,31 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                     </div>
                   </div>
 
+                  {/* Item Grid ALV Toolbar (RFQ v1.07 Page 2 & 3) */}
+                  <AlvToolbar
+                    spec={{
+                      ...spec,
+                      toolbar_buttons: spec.item_grid.toolbar_buttons,
+                      custom_toolbar: spec.item_grid.custom_toolbar || [],
+                      field_catalog: spec.item_grid.field_catalog,
+                      mock_rows: itemRows,
+                    }}
+                    theme={currentTheme}
+                    statusSummaries={[]}
+                    selectedStatusFilters={[]}
+                    onToggleStatusFilter={() => {}}
+                    onOpenDetail={() => {}}
+                    onSort={() => {}}
+                    onFilter={() => {}}
+                    filterQuery=""
+                    onClearFilter={() => {}}
+                    onToggleTotals={() => {}}
+                    onExport={handleExportCsv}
+                    onPrint={() => window.print()}
+                    onInfo={() => {}}
+                    onCustomAction={(btn) => alert(`[Item ALV] ${btn.text} (${btn.function})`)}
+                  />
+
                   {/* Item Grid Table */}
                   <div className="flex-1 overflow-auto">
                     <table className="w-full border-collapse text-xs font-sans whitespace-nowrap">
@@ -1075,9 +1181,9 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
 
                       {/* Item Grid Total Row (DO_SUM) */}
                       {spec.item_grid.field_catalog.some((f) => f.do_sum) && (
-                        <tfoot className="sticky bottom-0 z-10 bg-[#e4edf7] border-t-2 border-[#8ba9cb] font-bold text-slate-900 shadow-xs">
-                          <tr className="bg-[#e0ecf8]">
-                            <td className="w-8 px-1 py-1 text-center bg-[#c8d8ea] border-r border-[#9bbadb] text-[10px] text-blue-900 font-bold select-none">
+                        <tfoot className={`sticky bottom-0 z-10 border-t-2 ${themeStyles.totalRowBorder} font-bold shadow-xs`}>
+                          <tr className={`${themeStyles.totalRowBg} ${themeStyles.totalRowText}`}>
+                            <td className={`w-8 px-1 py-1 text-center border-r ${themeStyles.gridHeaderBorder} ${themeStyles.gridCornerBg} text-[10px] font-bold select-none`}>
                               Σ
                             </td>
                             {spec.item_grid.field_catalog.map((field, idx) => {
@@ -1087,16 +1193,16 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                               return (
                                 <td
                                   key={field.id || field.fieldname}
-                                  className={`px-2 py-1.5 border-r border-[#9bbadb] text-xs font-mono ${
-                                    hasSum ? 'text-right text-blue-950 bg-[#d5e6f7]' : isFirstTextCol ? 'text-left text-slate-800' : 'text-center text-slate-400'
+                                  className={`px-2 py-1.5 border-r ${themeStyles.gridHeaderBorder} text-xs font-mono ${
+                                    hasSum ? 'text-right font-extrabold' : isFirstTextCol ? 'text-left font-bold' : 'text-center'
                                   }`}
                                 >
                                   {hasSum ? (
-                                    <span className="font-extrabold text-blue-900">
+                                    <span className="font-extrabold">
                                       {Number(sumVal || 0).toLocaleString()}
                                     </span>
                                   ) : isFirstTextCol ? (
-                                    <span className="font-bold text-slate-700">* Total (합계)</span>
+                                    <span className="font-bold">* Total (합계)</span>
                                   ) : (
                                     ''
                                   )}
@@ -1134,9 +1240,9 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
 
                 <table className="w-full border-collapse text-xs font-sans whitespace-nowrap">
                   {/* Header Row */}
-                  <thead className="sticky top-0 z-10 bg-[#d8e4f0] border-b border-[#9bbadb] text-slate-900">
+                  <thead className={`sticky top-0 z-10 ${themeStyles.gridHeaderBg} border-b ${themeStyles.gridHeaderBorder} ${themeStyles.gridHeaderText}`}>
                     <tr>
-                      <th className="w-8 px-1 py-1 border-r border-[#9bbadb] bg-[#c8d8ea] text-center">
+                      <th className={`w-8 px-1 py-1 border-r ${themeStyles.gridHeaderBorder} ${themeStyles.gridCornerBg} text-center`}>
                         <div className="w-3.5 h-3.5 mx-auto border border-slate-600 bg-white flex items-center justify-center">
                           <span className="text-[9px] text-blue-900 leading-none font-bold">▶</span>
                         </div>
@@ -1149,8 +1255,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                             style={{
                               minWidth: Math.max(field.outputlen * 9, 65),
                             }}
-                            className={`px-2 py-1.5 border-r border-[#9bbadb] text-left font-semibold text-xs ${
-                              isKey ? 'bg-[#bce0fd] text-slate-900' : 'bg-[#d8e4f0] text-slate-900'
+                            className={`px-2 py-1.5 border-r ${themeStyles.gridHeaderBorder} text-left font-semibold text-xs ${
+                              isKey ? 'bg-[#bce0fd] text-slate-900' : `${themeStyles.gridHeaderBg} ${themeStyles.gridHeaderText}`
                             }`}
                           >
                             <div className="flex items-center justify-between gap-1">
@@ -1316,9 +1422,9 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
 
                   {/* Single ALV Total Row (DO_SUM) */}
                   {spec.field_catalog.some((f) => f.do_sum) && (
-                    <tfoot className="sticky bottom-0 z-10 bg-[#e4edf7] border-t-2 border-[#8ba9cb] font-bold text-slate-900 shadow-xs">
-                      <tr className="bg-[#e0ecf8]">
-                        <td className="w-8 px-1 py-1 text-center bg-[#c8d8ea] border-r border-[#9bbadb] text-[10px] text-blue-900 font-bold select-none">
+                    <tfoot className={`sticky bottom-0 z-10 border-t-2 ${themeStyles.totalRowBorder} font-bold shadow-xs`}>
+                      <tr className={`${themeStyles.totalRowBg} ${themeStyles.totalRowText}`}>
+                        <td className={`w-8 px-1 py-1 text-center border-r ${themeStyles.gridHeaderBorder} ${themeStyles.gridCornerBg} text-[10px] font-bold select-none`}>
                           Σ
                         </td>
                         {spec.field_catalog.map((field, idx) => {
@@ -1328,16 +1434,16 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
                           return (
                             <td
                               key={field.id || field.fieldname}
-                              className={`px-2 py-1.5 border-r border-[#9bbadb] text-xs font-mono ${
-                                hasSum ? 'text-right text-blue-950 bg-[#d5e6f7]' : isFirstTextCol ? 'text-left text-slate-800' : 'text-center text-slate-400'
+                              className={`px-2 py-1.5 border-r ${themeStyles.gridHeaderBorder} text-xs font-mono ${
+                                hasSum ? 'text-right font-extrabold' : isFirstTextCol ? 'text-left font-bold' : 'text-center'
                               }`}
                             >
                               {hasSum ? (
-                                <span className="font-extrabold text-blue-900">
+                                <span className="font-extrabold">
                                   {Number(sumVal || 0).toLocaleString()}
                                 </span>
                               ) : isFirstTextCol ? (
-                                <span className="font-bold text-slate-700">* Total (합계)</span>
+                                <span className="font-bold">* Total (합계)</span>
                               ) : (
                                 ''
                               )}
@@ -1428,19 +1534,29 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
         )}
       </div>
 
-      {/* 6. SAP Classic Status Bar */}
-      <div className="flex items-center justify-between bg-[#dbe7f5] px-3 py-1 border-t border-[#a4bedb] text-xs text-slate-700">
+      {/* 6. SAP Status Bar with Dynamic Theme */}
+      <div className={`flex items-center justify-between px-3 py-1 border-t text-xs transition-colors duration-200 ${themeStyles.statusBarBg} ${themeStyles.statusBarBorder} ${themeStyles.statusBarText}`}>
         <div className="flex items-center gap-2">
           {statusMessage.type === 'S' ? (
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-700 inline-block" />
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-700 inline-block shadow-2xs" />
           ) : (
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 border border-rose-700 inline-block" />
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 border border-rose-700 inline-block shadow-2xs" />
           )}
-          <span className="font-medium text-slate-800">{statusMessage.text}</span>
+          <span className="font-medium">{statusMessage.text}</span>
         </div>
 
-        <div className="flex items-center gap-3 text-[11px] text-slate-600 font-mono">
+        <div className="flex items-center gap-3 text-[11px] font-mono opacity-80">
           <span>PRD (100)</span>
+          <span className="opacity-40">|</span>
+          <button
+            type="button"
+            onClick={() => setIsThemeSettingsOpen(true)}
+            className="hover:underline cursor-pointer flex items-center gap-1 font-sans"
+            title="Click to open SAP GUI Theme Settings"
+          >
+            <Palette className="w-3 h-3" />
+            <span>Theme: {themeInfo.name}</span>
+          </button>
           <span className="opacity-40">|</span>
           <span>cl_gui_alv_grid</span>
           <span className="opacity-40">|</span>
@@ -1491,6 +1607,14 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({ spec, onUpdateSpec }
           onNextRow={() => setSelectedRowIndex(prev => Math.min(displayedRows.length - 1, (prev || 0) + 1))}
         />
       )}
+
+      {/* SAP GUI Theme Settings Modal */}
+      <SapThemeSettingsModal
+        isOpen={isThemeSettingsOpen}
+        onClose={() => setIsThemeSettingsOpen(false)}
+        currentTheme={currentTheme}
+        onSelectTheme={handleSelectTheme}
+      />
     </div>
   );
 };

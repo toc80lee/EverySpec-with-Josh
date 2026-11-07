@@ -34,7 +34,7 @@ export const ToolbarEditor: React.FC<ToolbarEditorProps> = ({ spec, onChange }) 
     ? spec.toolbar_buttons
     : DEFAULT_ALV_TOOLBAR_BUTTONS;
 
-  const [activeTab, setActiveTab] = useState<'standard' | 'custom'>('standard');
+  const [activeTab, setActiveTab] = useState<'standard' | 'custom'>('custom');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Cell range selection state
