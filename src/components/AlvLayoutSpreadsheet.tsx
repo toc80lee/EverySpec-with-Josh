@@ -809,14 +809,14 @@ export const AlvLayoutSpreadsheet: React.FC<AlvLayoutSpreadsheetProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <span>ALV Layout Structure (LVC_S_LAYO) Configuration</span>
+              <span>Configure the Layout</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-100 text-blue-900 font-bold border border-blue-200">
                 Standard SAP S/4HANA & ECC
               </span>
             </h3>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            CL_GUI_ALV_GRID의 화면 외관, 열 너비 최적화, 정렬, 합계, 선택 모드 및 색상 제어 파라미터를 스프레드시트로 일괄 편집합니다.
+            Configure CL_GUI_ALV_GRID appearance, column width optimization, sorting, totals, selection mode, and color control parameters (LVC_S_LAYO).
           </p>
         </div>
 
@@ -959,12 +959,7 @@ export const AlvLayoutSpreadsheet: React.FC<AlvLayoutSpreadsheetProps> = ({
                       <td className="py-2.5 px-3 border-r border-slate-300 font-bold text-slate-900">
                         <span className="font-bold text-slate-900 text-xs">{category}</span>
                       </td>
-                      <td className="py-2.5 px-3 border-r border-slate-300 font-mono text-[11px] text-slate-500">
-                        <span className="truncate block max-w-xs text-slate-600">
-                          {items.slice(0, 4).map((i) => i.name).join(', ')}
-                          {items.length > 4 ? '...' : ''}
-                        </span>
-                      </td>
+                      <td className="py-2.5 px-3 border-r border-slate-300"></td>
                       <td className="py-2.5 px-3 border-r border-slate-300"></td>
                       <td className="py-2.5 px-3 text-center text-xs">
                         <div className="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-slate-200 text-slate-600 group-hover:text-blue-700 transition-colors">

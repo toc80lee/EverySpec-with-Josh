@@ -530,11 +530,11 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
           <button
             type="button"
             onClick={() => setIsPdfModalOpen(true)}
-            className="p-2 text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border border-blue-400/40 rounded-md transition-all flex items-center justify-center shadow-2xs cursor-pointer"
+            className="p-2 text-slate-700 bg-white hover:bg-slate-100 hover:text-blue-700 border border-slate-300 rounded-md transition-colors flex items-center justify-center shadow-2xs cursor-pointer"
             title="Export PDF"
             aria-label="Export PDF"
           >
-            <FileDown className="w-4 h-4" />
+            <FileDown className="w-4 h-4 text-blue-600" />
           </button>
 
           {/* Templates Button (Icon only) */}
@@ -1621,7 +1621,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
               <div className="space-y-4">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Configure ALV Column Sorting & Sequence
+                    Configure the Sort
                   </h3>
                   <p className="text-xs text-slate-500">
                     Reorder ALV column positions (COL_POS) and manage field order (LVC_T_SORT).
@@ -1673,7 +1673,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">
-                      Test Case ({activeIsItem ? 'Item ALV Grid' : 'Header ALV Grid'} Verification & Test Data)
+                      Make the Test Case
                     </h3>
                     <p className="text-xs text-slate-500">
                       Write test scenarios for specification verification, or download/upload CSV templates to immediately reflect on the ALV grid.

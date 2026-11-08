@@ -330,11 +330,6 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
 
   const enabledCount = spec.field_catalog.filter((f) => !!f.sort_enable).length;
 
-  const handleToggleAllEnable = (enabled: boolean) => {
-    const nextCatalog = spec.field_catalog.map((f) => ({ ...f, sort_enable: enabled }));
-    onChange(nextCatalog);
-  };
-
   return (
     <div
       tabIndex={0}
@@ -386,21 +381,9 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                   <div className="text-[9px] text-slate-400 font-mono">A</div>
                   <div>↕</div>
                 </th>
-                <th className="py-1 px-1.5 text-center w-20 border-r border-slate-200" title="Sort Enable Checkbox (정렬 참여 여부: ENABLE이 체크된 필드로만 Sort가 실행됩니다)">
+                <th className="py-1 px-1.5 text-center w-16 border-r border-slate-200" title="Sort Enable Checkbox (정렬 참여 여부: ENABLE이 체크된 필드로만 Sort가 실행됩니다)">
                   <div className="text-[9px] text-slate-400 font-mono">B</div>
-                  <div className="flex items-center justify-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={enabledCount > 0 && enabledCount === spec.field_catalog.length}
-                      ref={(el) => {
-                        if (el) el.indeterminate = enabledCount > 0 && enabledCount < spec.field_catalog.length;
-                      }}
-                      onChange={(e) => handleToggleAllEnable(e.target.checked)}
-                      className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
-                      title="전체 ENABLE 선택/해제"
-                    />
-                    <span>ENABLE</span>
-                  </div>
+                  <div>ENABLE</div>
                 </th>
                 <th className="py-1 px-1.5 text-center w-14 border-r border-slate-200" title="Column Position (COL_POS)">
                   <div className="text-[9px] text-slate-400 font-mono">C</div>

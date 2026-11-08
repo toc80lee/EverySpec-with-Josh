@@ -577,10 +577,8 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
           >
             <Copy className="w-4 h-4" />
           </button>
-        </div>
 
-        {/* Right: Mock Data Generation & Column Count */}
-        <div className="flex items-center gap-2">
+          {/* Mock Data Generation Button (repositioned behind Copy Table to Excel) */}
           <button
             type="button"
             onClick={handleGenerateMockData}
@@ -590,7 +588,10 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
           >
             <Sparkles className="w-4 h-4" />
           </button>
+        </div>
 
+        {/* Right: Column Count */}
+        <div className="flex items-center gap-2">
           <span className="font-mono text-xs text-blue-700 bg-white px-2.5 py-1 rounded border border-blue-200 font-semibold shadow-2xs">
             Total {spec.field_catalog.length} Columns
           </span>
