@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Trash2,
   ArrowUp,
   ArrowDown,
   GripVertical,
@@ -8,10 +7,10 @@ import {
   ArrowDownToLine,
   FileSpreadsheet,
   Copy,
+  AlertTriangle,
 } from 'lucide-react';
 import { AlvField, ProgramSpec } from '../types/sap';
 import {
-  exportFieldCatalogToTsv,
   copyTsvToClipboard,
   parseSpreadsheetText,
   CellRange,
@@ -44,22 +43,35 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, []);
 
-  // Columns for Sort view:
+  // Columns for Sort view (LVC_T_SORT):
   // 0: ENABLE
-  // 1: POS
+  // 1: SPOS (Sort position)
   // 2: FIELDNAME
-  // 3: COLTEXT
-  const SORT_COL_COUNT = 4;
+  // 3: COLTEXT (Read-only)
+  // 4: UP (Ascending checkbox)
+  // 5: DOWN (Descending checkbox)
+  const SORT_COL_COUNT = 6;
 
   const getSortCellValue = (rowIdx: number, colIdx: number): string => {
     const field = spec.field_catalog[rowIdx];
     if (!field) return '';
     switch (colIdx) {
-      case 0: return field.sort_enable ? 'X' : '';
-      case 1: return String(field.col_pos);
-      case 2: return field.fieldname || '';
-      case 3: return field.coltext || '';
-      default: return '';
+      case 0:
+        return field.sort_enable ? 'X' : '';
+      case 1:
+        return field.sort_enable && field.spos !== undefined && field.spos !== null
+          ? String(field.spos)
+          : '';
+      case 2:
+        return field.fieldname || '';
+      case 3:
+        return field.coltext || '';
+      case 4:
+        return field.sort_enable && field.sort_up ? 'X' : '';
+      case 5:
+        return field.sort_enable && field.sort_down ? 'X' : '';
+      default:
+        return '';
     }
   };
 
@@ -87,7 +99,6 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
   // Keyboard shortcut listener for Ctrl+C (Copy selected cells as TSV)
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-      // If user is selecting text in an input, let default copy happen
       const activeEl = document.activeElement;
       if (
         activeEl instanceof HTMLInputElement &&
@@ -108,7 +119,7 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
     }
   };
 
-  // Direct paste into selected cells and expand rows if needed
+  // Direct paste into selected cells
   const handleTablePaste = (e: React.ClipboardEvent) => {
     const text = e.clipboardData.getData('text/plain');
     if (!text) return;
@@ -129,33 +140,6 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
     const pastedColCount = Math.max(...matrix.map((r) => r.length));
 
     const updated = [...spec.field_catalog];
-    const neededTotal = startR + pastedRowCount;
-
-    if (neededTotal > updated.length) {
-      const rowsToAdd = neededTotal - updated.length;
-      for (let i = 0; i < rowsToAdd; i++) {
-        const nextPos = updated.length + 1;
-        const newF: AlvField = {
-          id: `fld-paste-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
-          col_pos: nextPos,
-          fieldname: `FIELD_${nextPos}`,
-          coltext: `Column ${nextPos}`,
-          datatype: 'CHAR',
-          outputlen: 10,
-          just: 'C',
-          key: false,
-          hotspot: false,
-          checkbox: false,
-          edit: false,
-          do_sum: false,
-          emphasize: '',
-          ref_table: '',
-          ref_field: '',
-          drilldown_tcode: '',
-        };
-        updated.push(newF);
-      }
-    }
 
     matrix.forEach((rowVals, rOffset) => {
       const targetRowIdx = startR + rOffset;
@@ -163,52 +147,74 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
 
       const targetField = { ...updated[targetRowIdx] };
 
-      // Prevent editing ZICON
-      if (targetField.fieldname === 'ZICON') {
-        targetField.coltext = 'Status';
-        targetField.key = true;
-        updated[targetRowIdx] = targetField;
-        return;
-      }
-
       rowVals.forEach((val, cOffset) => {
         const targetColIdx = startC + cOffset;
         const trimmed = val.trim();
 
         switch (targetColIdx) {
-          case 0:
-            targetField.sort_enable = isTruthy(trimmed);
+          case 0: { // ENABLE
+            const enabled = isTruthy(trimmed);
+            targetField.sort_enable = enabled;
+            if (enabled && (!targetField.spos || targetField.spos < 1)) {
+              targetField.spos = targetRowIdx + 1;
+              targetField.sort_up = true;
+              targetField.sort_down = false;
+            }
             break;
-          case 1:
-            // POS (order position)
+          }
+          case 1: { // SPOS
+            if (targetField.sort_enable) {
+              const num = parseInt(trimmed, 10);
+              targetField.spos = !isNaN(num) && num > 0 ? num : undefined;
+            }
             break;
-          case 2:
-            if (trimmed) targetField.fieldname = trimmed.toUpperCase();
+          }
+          case 2: // FIELDNAME
+            if (trimmed && targetField.fieldname !== 'ZICON') {
+              targetField.fieldname = trimmed.toUpperCase();
+            }
             break;
-          case 3:
-            targetField.coltext = trimmed;
+          case 3: // COLTEXT is read-only in Sort tab
             break;
+          case 4: { // UP
+            if (targetField.sort_enable) {
+              const isUp = isTruthy(trimmed);
+              targetField.sort_up = isUp;
+              if (isUp) targetField.sort_down = false;
+            }
+            break;
+          }
+          case 5: { // DOWN
+            if (targetField.sort_enable) {
+              const isDown = isTruthy(trimmed);
+              targetField.sort_down = isDown;
+              if (isDown) targetField.sort_up = false;
+            }
+            break;
+          }
         }
       });
 
       updated[targetRowIdx] = targetField;
     });
 
-    const reindexed = updated.map((f, idx) => ({ ...f, col_pos: idx + 1 }));
-    onChange(reindexed);
+    onChange(updated);
 
     setSelectedRange({
       startRow: startR,
       startCol: startC,
-      endRow: startR + pastedRowCount - 1,
+      endRow: Math.min(startR + pastedRowCount - 1, spec.field_catalog.length - 1),
       endCol: Math.min(startC + pastedColCount - 1, SORT_COL_COUNT - 1),
     });
   };
 
   const handleCopyTable = async () => {
-    const lines = ['ENABLE\tPOS\tFIELDNAME\tCOLTEXT'];
+    const lines = ['ENABLE\tSPOS\tFIELDNAME\tCOLTEXT\tUP\tDOWN'];
     spec.field_catalog.forEach((f) => {
-      lines.push(`${f.sort_enable ? 'X' : ''}\t${f.col_pos}\t${f.fieldname}\t${f.coltext}`);
+      const sposVal = f.sort_enable ? (f.spos !== undefined && f.spos !== null ? String(f.spos) : '') : '';
+      const upVal = f.sort_enable && f.sort_up ? 'X' : '';
+      const downVal = f.sort_enable && f.sort_down ? 'X' : '';
+      lines.push(`${f.sort_enable ? 'X' : ''}\t${sposVal}\t${f.fieldname}\t${f.coltext}\t${upVal}\t${downVal}`);
     });
     await copyTsvToClipboard(lines.join('\n'));
   };
@@ -225,7 +231,7 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
     }
   };
 
-  // Drag and Drop States
+  // Drag and Drop States for column reordering
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [dragPosition, setDragPosition] = useState<'top' | 'bottom' | null>(null);
@@ -311,22 +317,68 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
     setDragPosition(null);
   };
 
-  const handleDeleteField = (index: number) => {
-    const nextCatalog = spec.field_catalog
-      .filter((_, i) => i !== index)
-      .map((f, i) => ({ ...f, col_pos: i + 1 }));
-    onChange(nextCatalog);
-  };
-
   const handleUpdateField = (index: number, patch: Partial<AlvField>) => {
-    const current = spec.field_catalog[index];
-    if (current && current.fieldname === 'ZICON' && !('sort_enable' in patch)) {
-      // Disallow editing ZICON text attributes
-      return;
-    }
     const nextCatalog = spec.field_catalog.map((f, i) => (i === index ? { ...f, ...patch } : f));
     onChange(nextCatalog);
   };
+
+  // Toggle ENABLE handler: when checked, automatically defaults SPOS and UP='X'
+  const handleToggleEnable = (idx: number, enable: boolean) => {
+    const current = spec.field_catalog[idx];
+    if (!current) return;
+
+    if (enable) {
+      // Find current max spos among enabled fields
+      const currentMaxSpos = spec.field_catalog
+        .filter((f) => f.sort_enable && typeof f.spos === 'number' && !isNaN(f.spos))
+        .reduce((max, f) => Math.max(max, f.spos || 0), 0);
+      const nextSpos = current.spos && current.spos > 0 ? current.spos : currentMaxSpos + 1;
+      
+      // Default to UP if neither is currently set
+      const up = current.sort_down ? false : true;
+      const down = current.sort_down ? true : false;
+
+      handleUpdateField(idx, {
+        sort_enable: true,
+        spos: nextSpos,
+        sort_up: up,
+        sort_down: down,
+      });
+    } else {
+      handleUpdateField(idx, {
+        sort_enable: false,
+      });
+    }
+  };
+
+  // Toggle UP checkbox (mutually exclusive with DOWN)
+  const handleToggleUp = (idx: number) => {
+    const field = spec.field_catalog[idx];
+    if (!field || !field.sort_enable) return;
+
+    if (field.sort_up) {
+      handleUpdateField(idx, { sort_up: false });
+    } else {
+      handleUpdateField(idx, { sort_up: true, sort_down: false });
+    }
+  };
+
+  // Toggle DOWN checkbox (mutually exclusive with UP)
+  const handleToggleDown = (idx: number) => {
+    const field = spec.field_catalog[idx];
+    if (!field || !field.sort_enable) return;
+
+    if (field.sort_down) {
+      handleUpdateField(idx, { sort_down: false });
+    } else {
+      handleUpdateField(idx, { sort_down: true, sort_up: false });
+    }
+  };
+
+  // Validation: Check if any ENABLED field has empty or invalid SPOS
+  const emptySposFields = spec.field_catalog.filter(
+    (f) => f.sort_enable && (f.spos === undefined || f.spos === null || isNaN(f.spos) || f.spos <= 0)
+  );
 
   const enabledCount = spec.field_catalog.filter((f) => !!f.sort_enable).length;
 
@@ -342,7 +394,7 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
           <GripVertical className="w-4 h-4 text-blue-600 shrink-0" />
           <span className="text-xs font-bold text-slate-800">Reorder & Sort ALV Columns:</span>
           <span className="text-xs text-slate-600">
-            Drag the <strong>grip (↕)</strong> or change <strong>POS</strong> to arrange columns.
+            Drag the <strong>grip (↕)</strong> or set <strong>SPOS</strong> to arrange sort sequence.
           </span>
         </div>
 
@@ -365,6 +417,20 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
         </div>
       </div>
 
+      {/* Validation Warning Alert: SPOS is required when ENABLE is checked */}
+      {emptySposFields.length > 0 && (
+        <div className="flex items-center gap-2.5 p-2.5 bg-rose-50 border border-rose-300 rounded-lg text-rose-800 text-xs font-medium">
+          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>
+            <strong>SPOS 필수 입력 오류:</strong> ENABLE이 체크된 필드 (
+            <span className="font-mono font-bold text-rose-900">
+              {emptySposFields.map((f) => f.fieldname || f.coltext).join(', ')}
+            </span>
+            )의 SPOS(정렬 순서) 값이 비어 있습니다. 1 이상의 순서를 입력해 주세요.
+          </span>
+        </div>
+      )}
+
       {/* Spreadsheet Grid */}
       <div
         onPaste={handleTablePaste}
@@ -381,23 +447,31 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                   <div className="text-[9px] text-slate-400 font-mono">A</div>
                   <div>↕</div>
                 </th>
-                <th className="py-1 px-1.5 text-center w-16 border-r border-slate-200" title="Sort Enable Checkbox (정렬 참여 여부: ENABLE이 체크된 필드로만 Sort가 실행됩니다)">
+                <th className="py-1 px-1.5 text-center w-16 border-r border-slate-200" title="Sort Enable Checkbox (ENABLE이 체크된 필드로만 Sort가 실행됩니다)">
                   <div className="text-[9px] text-slate-400 font-mono">B</div>
                   <div>ENABLE</div>
                 </th>
-                <th className="py-1 px-1.5 text-center w-14 border-r border-slate-200" title="Column Position (COL_POS)">
+                <th className="py-1 px-1.5 text-center w-16 border-r border-slate-200" title="Sort Sequence (LVC_S_SORT-SPOS: ENABLE 체크 시 필수)">
                   <div className="text-[9px] text-slate-400 font-mono">C</div>
-                  <div>POS</div>
+                  <div>SPOS</div>
                 </th>
                 <th className="py-1 px-2 min-w-36 border-r border-slate-200 font-mono">
                   <div className="text-[9px] text-slate-400 font-mono">D</div>
                   <div>FIELDNAME</div>
                 </th>
-                <th className="py-1 px-2 min-w-44 border-r border-slate-200">
+                <th className="py-1 px-2 min-w-44 border-r border-slate-200" title="Sort 탭에서는 COLTEXT를 변경할 수 없습니다">
                   <div className="text-[9px] text-slate-400 font-mono">E</div>
                   <div>COLTEXT</div>
                 </th>
-                <th className="py-1 px-2 text-center w-36">
+                <th className="py-1 px-1.5 text-center w-14 border-r border-slate-200" title="오름차순 (LVC_S_SORT-UP: 'X' or ' ')">
+                  <div className="text-[9px] text-slate-400 font-mono">F</div>
+                  <div>UP</div>
+                </th>
+                <th className="py-1 px-1.5 text-center w-14 border-r border-slate-200" title="내림차순 (LVC_S_SORT-DOWN: 'X' or ' ')">
+                  <div className="text-[9px] text-slate-400 font-mono">G</div>
+                  <div>DOWN</div>
+                </th>
+                <th className="py-1 px-2 text-center w-32">
                   <div className="text-[9px] text-slate-400 font-mono">ACTIONS</div>
                   <div>MANAGE / ORDER</div>
                 </th>
@@ -406,7 +480,7 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
             <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
               {spec.field_catalog.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-400 font-sans">
+                  <td colSpan={9} className="py-10 text-center text-slate-400 font-sans">
                     <div className="flex flex-col items-center justify-center gap-1.5">
                       <FileSpreadsheet className="w-6 h-6 text-slate-300" />
                       <p className="font-medium">No fields registered.</p>
@@ -421,6 +495,8 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                   const isDropTop = isOver && dragPosition === 'top';
                   const isDropBottom = isOver && dragPosition === 'bottom';
                   const isZicon = field.fieldname === 'ZICON';
+                  const isEnabled = !!field.sort_enable;
+                  const isSposInvalid = isEnabled && (field.spos === undefined || field.spos === null || isNaN(field.spos) || field.spos <= 0);
 
                   const cellDropClasses = isDropTop
                     ? 'border-t-2 border-t-blue-600 bg-blue-50/70'
@@ -468,7 +544,7 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, idx)}
                           onDragEnd={handleDragEnd}
-                          title="Drag grip to reorder column position (COL_POS)"
+                          title="Drag grip to reorder column sequence"
                           className="p-1 inline-flex items-center justify-center rounded cursor-grab active:cursor-grabbing text-slate-400 hover:text-blue-700 hover:bg-blue-100/60 transition-colors select-none"
                         >
                           <GripVertical className="w-4 h-4 mx-auto" />
@@ -479,7 +555,7 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                       <td
                         onMouseDown={() => handleCellMouseDown(idx, 0)}
                         onMouseEnter={() => handleCellMouseEnter(idx, 0)}
-                        onClick={() => handleUpdateField(idx, { sort_enable: !field.sort_enable })}
+                        onClick={() => handleToggleEnable(idx, !field.sort_enable)}
                         className={`py-1 px-1.5 text-center border-r border-slate-200 cursor-pointer select-none hover:bg-blue-50/50 ${cellDropClasses} ${
                           isCellInRange(selectedRange, idx, 0)
                             ? 'bg-blue-100 ring-1 ring-blue-500'
@@ -490,10 +566,10 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                         <div className="flex items-center justify-center h-8">
                           <input
                             type="checkbox"
-                            checked={!!field.sort_enable}
+                            checked={isEnabled}
                             onChange={(e) => {
                               e.stopPropagation();
-                              handleUpdateField(idx, { sort_enable: e.target.checked });
+                              handleToggleEnable(idx, e.target.checked);
                             }}
                             className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
                             title="정렬 적용 (ENABLE)"
@@ -501,33 +577,63 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                         </div>
                       </td>
 
-                      {/* Col C: POS */}
+                      {/* Col C: SPOS (Only editable when ENABLE is checked; Required when ENABLE is checked) */}
                       <td
                         onMouseDown={() => handleCellMouseDown(idx, 1)}
                         onMouseEnter={() => handleCellMouseEnter(idx, 1)}
                         className={`p-0 border-r border-slate-200 text-center font-bold ${cellDropClasses} ${
-                          isCellInRange(selectedRange, idx, 1)
+                          isSposInvalid
+                            ? 'bg-rose-50 ring-2 ring-rose-500'
+                            : isCellInRange(selectedRange, idx, 1)
                             ? 'bg-blue-100 ring-1 ring-blue-500'
                             : ''
                         }`}
                       >
-                        <div className="flex items-center justify-center h-8">
-                          <select
-                            value={field.col_pos}
-                            onChange={(e) => {
-                              const newPos = parseInt(e.target.value, 10);
-                              if (!isNaN(newPos) && newPos >= 1 && newPos <= spec.field_catalog.length) {
-                                handleReorder(idx, newPos - 1);
-                              }
-                            }}
-                            className="bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:bg-white focus:border-blue-500 cursor-pointer text-center"
-                          >
-                            {spec.field_catalog.map((_, pIdx) => (
-                              <option key={pIdx + 1} value={pIdx + 1}>
-                                {pIdx + 1}
-                              </option>
-                            ))}
-                          </select>
+                        <div className="flex items-center justify-center h-8 px-1">
+                          {isEnabled ? (
+                            <div className="relative w-full flex items-center justify-center">
+                              <input
+                                type="number"
+                                min="1"
+                                max="99"
+                                value={field.spos !== undefined && field.spos !== null ? field.spos : ''}
+                                data-sortcell={`${idx}-spos`}
+                                onFocus={() => {
+                                  if (!selectedRange) {
+                                    setSelectedRange({ startRow: idx, startCol: 1, endRow: idx, endCol: 1 });
+                                  }
+                                }}
+                                onKeyDown={(e) => handleCellKeyDown(e, idx, 'spos')}
+                                onChange={(e) => {
+                                  const val = e.target.value.trim();
+                                  if (val === '') {
+                                    handleUpdateField(idx, { spos: undefined });
+                                  } else {
+                                    const num = parseInt(val, 10);
+                                    handleUpdateField(idx, { spos: isNaN(num) ? undefined : num });
+                                  }
+                                }}
+                                placeholder="필수"
+                                title={
+                                  isSposInvalid
+                                    ? 'SPOS는 필수 값입니다. 1 이상의 숫자를 입력하세요.'
+                                    : '정렬 순서 번호 (SPOS: 1, 2, 3...)'
+                                }
+                                className={`w-14 h-7 text-center font-mono font-bold text-xs rounded border transition-all focus:bg-white focus:outline-none focus:ring-2 ${
+                                  isSposInvalid
+                                    ? 'border-rose-400 bg-rose-50 text-rose-700 placeholder:text-rose-400 focus:ring-rose-500'
+                                    : 'border-blue-300 bg-blue-50/70 text-blue-900 focus:ring-blue-500'
+                                }`}
+                              />
+                            </div>
+                          ) : (
+                            <span
+                              className="text-slate-300 font-mono select-none text-xs"
+                              title="ENABLE 체크 시에만 SPOS 수정이 가능합니다."
+                            >
+                              -
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -566,35 +672,99 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                         />
                       </td>
 
-                      {/* Col E: COLTEXT */}
+                      {/* Col E: COLTEXT (Read-Only in Sort Tab per RFQ v1.16) */}
                       <td
                         onMouseDown={() => handleCellMouseDown(idx, 3)}
                         onMouseEnter={() => handleCellMouseEnter(idx, 3)}
-                        className={`p-0 border-r border-slate-200 font-sans ${cellDropClasses} ${
+                        className={`px-2 py-0 border-r border-slate-200 font-sans select-none ${cellDropClasses} ${
                           isCellInRange(selectedRange, idx, 3)
+                            ? 'bg-blue-100 ring-1 ring-blue-500'
+                            : 'bg-slate-50/40 text-slate-700'
+                        }`}
+                        title="Sort 탭에서는 COLTEXT를 변경할 수 없습니다 (Field Catalog 탭에서 수정)"
+                      >
+                        <div className="flex items-center h-8 font-medium truncate text-slate-700">
+                          {isZicon ? 'Status' : field.coltext}
+                        </div>
+                      </td>
+
+                      {/* Col F: UP (Ascending, 'X' or ' ', disabled when !sort_enable) */}
+                      <td
+                        onMouseDown={() => handleCellMouseDown(idx, 4)}
+                        onMouseEnter={() => handleCellMouseEnter(idx, 4)}
+                        onClick={() => isEnabled && handleToggleUp(idx)}
+                        className={`py-1 px-1.5 text-center border-r border-slate-200 select-none ${cellDropClasses} ${
+                          !isEnabled
+                            ? 'bg-slate-50/60 cursor-not-allowed opacity-50'
+                            : 'cursor-pointer hover:bg-blue-50/50'
+                        } ${
+                          isCellInRange(selectedRange, idx, 4)
                             ? 'bg-blue-100 ring-1 ring-blue-500'
                             : ''
                         }`}
+                        title={
+                          !isEnabled
+                            ? 'ENABLE 체크 시 활성화됩니다'
+                            : '오름차순 정렬 (UP: UP 선택 시 DOWN 자동 해제)'
+                        }
                       >
-                        <input
-                          type="text"
-                          value={isZicon ? 'Status' : field.coltext}
-                          disabled={isZicon}
-                          data-sortcell={`${idx}-coltext`}
-                          onFocus={() => {
-                            if (!selectedRange) {
-                              setSelectedRange({ startRow: idx, startCol: 3, endRow: idx, endCol: 3 });
-                            }
-                          }}
-                          onKeyDown={(e) => handleCellKeyDown(e, idx, 'coltext')}
-                          onChange={(e) => handleUpdateField(idx, { coltext: e.target.value })}
-                          className={`w-full h-8 px-2 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 text-slate-800 font-medium ${
-                            isZicon ? 'opacity-80 bg-slate-50 cursor-not-allowed font-semibold' : ''
-                          }`}
-                        />
+                        <div className="flex items-center justify-center h-8">
+                          <input
+                            type="checkbox"
+                            disabled={!isEnabled}
+                            checked={isEnabled && !!field.sort_up}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleToggleUp(idx);
+                            }}
+                            className={`w-4 h-4 rounded border-slate-300 focus:ring-blue-500 ${
+                              !isEnabled
+                                ? 'cursor-not-allowed opacity-40'
+                                : 'cursor-pointer text-blue-600'
+                            }`}
+                          />
+                        </div>
                       </td>
 
-                      {/* Reorder Actions */}
+                      {/* Col G: DOWN (Descending, 'X' or ' ', disabled when !sort_enable) */}
+                      <td
+                        onMouseDown={() => handleCellMouseDown(idx, 5)}
+                        onMouseEnter={() => handleCellMouseEnter(idx, 5)}
+                        onClick={() => isEnabled && handleToggleDown(idx)}
+                        className={`py-1 px-1.5 text-center border-r border-slate-200 select-none ${cellDropClasses} ${
+                          !isEnabled
+                            ? 'bg-slate-50/60 cursor-not-allowed opacity-50'
+                            : 'cursor-pointer hover:bg-blue-50/50'
+                        } ${
+                          isCellInRange(selectedRange, idx, 5)
+                            ? 'bg-blue-100 ring-1 ring-blue-500'
+                            : ''
+                        }`}
+                        title={
+                          !isEnabled
+                            ? 'ENABLE 체크 시 활성화됩니다'
+                            : '내림차순 정렬 (DOWN: DOWN 선택 시 UP 자동 해제)'
+                        }
+                      >
+                        <div className="flex items-center justify-center h-8">
+                          <input
+                            type="checkbox"
+                            disabled={!isEnabled}
+                            checked={isEnabled && !!field.sort_down}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleToggleDown(idx);
+                            }}
+                            className={`w-4 h-4 rounded border-slate-300 focus:ring-blue-500 ${
+                              !isEnabled
+                                ? 'cursor-not-allowed opacity-40'
+                                : 'cursor-pointer text-blue-600'
+                            }`}
+                          />
+                        </div>
+                      </td>
+
+                      {/* Reorder Actions (Field Deletion removed per RFQ v1.16) */}
                       <td className={`py-1 px-1 text-center ${cellDropClasses}`}>
                         <div className="flex items-center justify-center gap-0.5">
                           <button
@@ -632,16 +802,6 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                             className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded disabled:opacity-20 cursor-pointer"
                           >
                             <ArrowDownToLine className="w-3.5 h-3.5" />
-                          </button>
-                          <div className="h-4 w-px bg-slate-200 mx-0.5" />
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteField(idx)}
-                            disabled={isZicon}
-                            title={isZicon ? 'ZICON field cannot be deleted' : `Delete field '${field.fieldname}'`}
-                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>

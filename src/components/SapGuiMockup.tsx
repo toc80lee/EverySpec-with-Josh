@@ -774,16 +774,25 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
             : String(valB || '').localeCompare(String(valA || ''));
         });
       } else {
-        // Multi-column sort by enabled fields in sequence
+        // Multi-column sort by enabled fields ordered by SPOS and respecting UP/DOWN directions
+        const sortedEnabledFields = [...enabledSortFields].sort((a, b) => {
+          const sposA = typeof a.spos === 'number' && !isNaN(a.spos) ? a.spos : 999;
+          const sposB = typeof b.spos === 'number' && !isNaN(b.spos) ? b.spos : 999;
+          return sposA - sposB;
+        });
+
         result.sort((a, b) => {
-          for (const ef of enabledSortFields) {
+          for (const ef of sortedEnabledFields) {
             const valA = a[ef.fieldname];
             const valB = b[ef.fieldname];
+            const isDesc = !!ef.sort_down;
             let cmp = 0;
             if (typeof valA === 'number' && typeof valB === 'number') {
-              cmp = valA - valB;
+              cmp = isDesc ? valB - valA : valA - valB;
             } else {
-              cmp = String(valA ?? '').localeCompare(String(valB ?? ''));
+              cmp = isDesc
+                ? String(valB ?? '').localeCompare(String(valA ?? ''))
+                : String(valA ?? '').localeCompare(String(valB ?? ''));
             }
             if (cmp !== 0) return cmp;
           }

@@ -41,6 +41,9 @@ export interface AlvField {
   ref_field?: string;      // 참조 필드 (예: VBELN)
   drilldown_tcode?: string;// 핫스팟 클릭 시 이동할 T-Code (예: VA03)
   sort_enable?: boolean;   // 정렬 참여 여부 (기본: false)
+  spos?: number;           // 정렬 순서 (LVC_S_SORT-SPOS: 1, 2, 3...)
+  sort_up?: boolean;       // 오름차순 여부 (LVC_S_SORT-UP: 'X' 또는 ' ')
+  sort_down?: boolean;     // 내림차순 여부 (LVC_S_SORT-DOWN: 'X' 또는 ' ')
 }
 
 export interface SelectionParameter {
@@ -123,6 +126,42 @@ export interface AlvToolbarButton {
 }
 
 export type ToolbarCustomButton = AlvToolbarButton;
+
+export interface CustomToolbarVariant {
+  id: string;              // e.g. "/SD_SALES_ORDER", "DEFAULT", "/USER_DEF_01"
+  name: string;            // e.g. "영업/출하 전용 툴바", "자재/재고 관리 툴바"
+  description?: string;
+  is_builtin?: boolean;
+  buttons: AlvToolbarButton[];
+}
+
+// SAP Data Dictionary: Table Master (DD02L)
+export interface SapDD02LTable {
+  tabname: string;         // e.g. 'VBAK', 'VBAP', 'MARA', 'ZSDT0010'
+  ddtext: string;          // Short text / Description
+  module: 'SD' | 'MM' | 'FI' | 'CO' | 'PP' | 'PM' | 'QM' | 'COMMON' | 'CUSTOM';
+  tabclass?: 'TRANSP' | 'INTTAB' | 'CLUSTER' | 'POOL' | 'VIEW';
+  description?: string;
+  is_custom?: boolean;
+  created_at?: string;
+}
+
+// SAP Data Dictionary: Table Fields (DD03L)
+export interface SapDD03LField {
+  id: string;              // Unique identifier
+  tabname: string;         // Foreign key referencing DD02L.tabname
+  fieldname: string;       // Field name e.g. 'VBELN', 'ERDAT'
+  position: number;        // Position / sequence in table (1, 2, 3...)
+  keyflag: boolean;        // Primary key flag ('X' or ' ')
+  datatype: SapDataType;   // CHAR, NUMC, DATS, CURR, etc.
+  leng: number;            // Field length
+  decimals?: number;       // Decimals
+  scrtext_l: string;       // Field label (SCRTEXT_L)
+  ddtext: string;          // Field description
+  reftable?: string;       // Currency/unit reference table
+  reffield?: string;       // Currency/unit reference field
+  is_custom?: boolean;
+}
 
 export interface TestCase {
   id: string;
