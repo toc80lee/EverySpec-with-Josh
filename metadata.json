@@ -1,0 +1,10 @@
+{
+  "name": "Remix EverySpec with Josh",
+  "description": "Design SAP report specifications and instantly generate interactive ALV Grid mockups and automated ABAP code.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
