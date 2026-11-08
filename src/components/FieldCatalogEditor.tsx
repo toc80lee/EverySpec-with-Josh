@@ -4,7 +4,6 @@ import {
   Trash2,
   ArrowUp,
   ArrowDown,
-  Sparkles,
   Link,
   DollarSign,
   CheckSquare,
@@ -491,49 +490,6 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
     onChange(nextCatalog);
   };
 
-  // Generate realistic mock data rows based on current fields
-  const handleGenerateMockData = () => {
-    const newRows: Record<string, any>[] = [];
-    const count = 5;
-
-    for (let i = 0; i < count; i++) {
-      const row: Record<string, any> = {};
-
-      spec.field_catalog.forEach((f) => {
-        if (f.fieldname === 'ZICON' || f.fieldname === 'STATUS' || f.fieldname === 'LIGHTS') {
-          row[f.fieldname] = String((i % 3) + 1);
-        } else if (f.fieldname === 'CHECKBOX' || f.checkbox) {
-          row[f.fieldname] = i === 1 ? 'X' : ' ';
-        } else if (f.datatype === 'CURR' || f.datatype === 'DEC') {
-          row[f.fieldname] = (i + 1) * 1250000;
-        } else if (f.datatype === 'DATS') {
-          row[f.fieldname] = `2026.10.${String(i + 10).padStart(2, '0')}`;
-        } else if (f.datatype === 'TIMS') {
-          row[f.fieldname] = `09:30:${String(i * 12).padStart(2, '0')}`;
-        } else if (f.datatype === 'UNIT') {
-          row[f.fieldname] = 'EA';
-        } else if (f.fieldname.includes('VBELN') || f.fieldname.includes('DOC_NO')) {
-          row[f.fieldname] = `DOC-${String(2026001 + i)}`;
-        } else if (f.fieldname.includes('KUNNR') || f.fieldname.includes('PARTNER')) {
-          const partners = [
-            '삼성전자 화성사업장',
-            '현대자동차 남양연구소',
-            'LG에너지솔루션 오창',
-            'SK하이닉스 이천공장',
-            '포스코 광양제철소',
-          ];
-          row[f.fieldname] = partners[i % partners.length];
-        } else {
-          row[f.fieldname] = `VAL_${f.fieldname}_${i + 1}`;
-        }
-      });
-
-      newRows.push(row);
-    }
-
-    onChange(spec.field_catalog, newRows);
-  };
-
   return (
     <div
       tabIndex={0}
@@ -576,17 +532,6 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
             className="p-1.5 text-slate-700 bg-white hover:bg-slate-100 hover:text-blue-700 border border-slate-300 rounded-md transition-colors shadow-2xs cursor-pointer disabled:opacity-40"
           >
             <Copy className="w-4 h-4" />
-          </button>
-
-          {/* Mock Data Generation Button (repositioned behind Copy Table to Excel) */}
-          <button
-            type="button"
-            onClick={handleGenerateMockData}
-            title="Generate Mock Data"
-            aria-label="Generate Mock Data"
-            className="p-1.5 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors shadow-2xs cursor-pointer"
-          >
-            <Sparkles className="w-4 h-4" />
           </button>
         </div>
 
