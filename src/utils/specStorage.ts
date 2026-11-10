@@ -1,7 +1,7 @@
 import { ProgramSpec, SapModule, SpecChangeHistoryItem } from '../types/sap';
 import { SAMPLE_SPECS } from '../data/sampleSpecs';
 
-const STORAGE_KEY = 'sap_spec_programs_v2';
+const STORAGE_KEY = 'sap_spec_programs_v4';
 
 export interface SavedProgramSpecItem {
   program_id: string;

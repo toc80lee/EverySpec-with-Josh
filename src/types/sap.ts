@@ -4,7 +4,7 @@
 
 export type SapModule = 'SD' | 'MM' | 'FI' | 'CO' | 'PP' | 'HR' | 'QM' | 'PM' | 'BC';
 
-export type SapDataType = 'CHAR' | 'NUMC' | 'DATS' | 'TIMS' | 'CURR' | 'DEC' | 'UNIT' | 'INT4' | 'STRING';
+export type SapDataType = 'CHAR' | 'NUMC' | 'DATS' | 'TIMS' | 'CURR' | 'DEC' | 'UNIT' | 'INT4' | 'STRING' | 'CUKY';
 
 export type TextAlignment = 'L' | 'C' | 'R';
 
@@ -44,6 +44,7 @@ export interface AlvField {
   spos?: number;           // 정렬 순서 (LVC_S_SORT-SPOS: 1, 2, 3...)
   sort_up?: boolean;       // 오름차순 여부 (LVC_S_SORT-UP: 'X' 또는 ' ')
   sort_down?: boolean;     // 내림차순 여부 (LVC_S_SORT-DOWN: 'X' 또는 ' ')
+  decimals?: number;       // 소수점 자릿수 (LVC_S_FCAT-DECIMALS)
 }
 
 export interface SelectionParameter {
@@ -110,7 +111,7 @@ export interface AlvLayout {
   excp_led?: boolean;          // 1-Green, 2-Yellow, 3-Red
   box_fname?: string;          // 행 선택 체크박스 필드명 (BOX_FNAME)
   colorfname?: string;         // 행 컬러 필드명
-  show_row_numbers: boolean;
+  show_row_numbers?: boolean;
 }
 
 export interface AlvToolbarButton {
@@ -223,6 +224,7 @@ export interface DataFlowDiagramConfig {
 
 export interface SubAlvGridConfig {
   grid_name?: string;     // e.g. "Item ALV Grid"
+  grid_title?: string;
   layout: AlvLayout;
   field_catalog: AlvField[];
   custom_toolbar?: ToolbarCustomButton[];
@@ -230,6 +232,16 @@ export interface SubAlvGridConfig {
   test_cases?: TestCase[];
   mock_rows: Record<string, any>[];
   foreign_key?: string;    // e.g. "VBELN" to link to header row
+  sort_fields?: AlvSortField[];
+}
+
+export interface AlvSortField {
+  id: string;
+  fieldname: string;
+  spos: number;
+  up?: boolean;
+  down?: boolean;
+  subtotal?: boolean;
 }
 
 export interface SpecChangeHistoryItem {
@@ -238,6 +250,15 @@ export interface SpecChangeHistoryItem {
   changed_at: string;      // YYYY-MM-DD HH:mm:ss
   author: string;          // User who made the change
   comment: string;         // Change description
+}
+
+export interface ProgramSourceCodeTabs {
+  program?: string;
+  top?: string;
+  s01?: string;
+  c01?: string;
+  mod?: string;
+  f01?: string;
 }
 
 export interface ProgramSpec {
@@ -257,6 +278,7 @@ export interface ProgramSpec {
   selection_params: SelectionParameter[];
   field_catalog: AlvField[];
   layout: AlvLayout;
+  sort_fields?: AlvSortField[];
   custom_toolbar: ToolbarCustomButton[];
   toolbar_buttons?: AlvToolbarButton[];
   test_cases: TestCase[];
@@ -265,6 +287,7 @@ export interface ProgramSpec {
   item_grid?: SubAlvGridConfig; // For Master-Detail ALV (sample_type === '02')
   is_system?: boolean;          // Built-in system sample spec (cannot be deleted)
   change_history?: SpecChangeHistoryItem[]; // Revision change audit trail
+  source_code?: ProgramSourceCodeTabs;      // ABAP Source Code Tabs (Program, TOP, S01, C01, MOD, F01)
 }
 
 export type TemplateCategory = 'Single-Table' | 'Header-Detail' | 'OData-based' | 'Interface / Batch' | 'Custom';

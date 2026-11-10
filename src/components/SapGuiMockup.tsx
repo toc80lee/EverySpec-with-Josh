@@ -25,10 +25,12 @@ import { DrilldownModal } from './DrilldownModal';
 import { AlvDetailModal } from './AlvDetailModal';
 import { AlvToolbar } from './AlvToolbar';
 import { SapPivotBrowser } from './SapPivotBrowser';
+import { SapTreeAlvSimulator } from './SapTreeAlvSimulator';
 import { SapThemeSettingsModal } from './SapThemeSettingsModal';
 import { SapGuiTheme, SAP_GUI_THEMES, DEFAULT_SAP_THEME } from '../data/sapGuiThemes';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 import { downloadFile } from '../utils/specExport';
+import { getSapColorHex } from './SapColorSearchHelpModal';
 
 interface SapGuiMockupProps {
   spec: ProgramSpec;
@@ -56,74 +58,38 @@ export const getSapAlvCellStyle = (
   isSelected = false,
   isZebra = false,
   isEditable = false
-) => {
+): { bg: string; text: string; style?: React.CSSProperties } => {
   if (isSelected) {
     return { bg: 'bg-[#fff5cc]', text: 'text-slate-900 font-bold' };
   }
-  // User request: 변경이 가능한 필드는 노란색 바탕이 아닌 그냥 흰색으로 처리해 주세요.
+  // Editable fields: white background per requirement
   if (isEditable) {
     return { bg: 'bg-white', text: 'text-slate-900' };
   }
   if (isKey) {
     return { bg: 'bg-[#bce0fd]', text: 'text-slate-900 font-semibold' };
   }
-  if (!emphasize || !emphasize.startsWith('C')) {
+  if (!emphasize) {
     return {
       bg: isZebra ? 'bg-[#f4f7fb]' : 'bg-white',
       text: 'text-slate-800',
     };
   }
 
-  const code = emphasize.toUpperCase();
-  const colorNum = code.charAt(1);
-  const intensified = code.charAt(2); // '1' or '0'
-  const inverse = code.charAt(3);    // '1' or '0'
-
-  switch (colorNum) {
-    case '1': // Blue (Key / information)
-      return {
-        bg: intensified === '1' ? 'bg-blue-100' : 'bg-blue-200/70',
-        text: 'text-blue-950 font-semibold',
-      };
-    case '2': // Gray
-      return {
-        bg: intensified === '1' ? 'bg-slate-200' : 'bg-slate-100',
-        text: 'text-slate-900',
-      };
-    case '3': // Yellow (C300, C310, C301)
-      if (intensified === '1') {
-        return { bg: 'bg-[#fefce8]', text: 'text-[#854d0e] font-medium' }; // C310 Light yellow
-      }
-      if (inverse === '1') {
-        return { bg: 'bg-white', text: 'text-[#b45309] font-bold' }; // C301 Yellow text
-      }
-      return { bg: 'bg-[#fef08a]', text: 'text-[#713f12] font-semibold' }; // C300 Yellow background
-    case '4': // Cyan
-      return {
-        bg: intensified === '1' ? 'bg-cyan-100' : 'bg-cyan-200/70',
-        text: 'text-cyan-950 font-medium',
-      };
-    case '5': // Green
-      return {
-        bg: intensified === '1' ? 'bg-emerald-100' : 'bg-emerald-200/70',
-        text: 'text-emerald-950 font-semibold',
-      };
-    case '6': // Red
-      return {
-        bg: intensified === '1' ? 'bg-rose-100' : 'bg-rose-200/70',
-        text: 'text-rose-950 font-semibold',
-      };
-    case '7': // Orange
-      return {
-        bg: intensified === '1' ? 'bg-orange-100' : 'bg-orange-200/70',
-        text: 'text-orange-950 font-semibold',
-      };
-    default:
-      return {
-        bg: isZebra ? 'bg-[#f4f7fb]' : 'bg-white',
-        text: 'text-slate-800',
-      };
+  // Standard SAP ALV Color Codes (C100 ~ C711)
+  const hex = getSapColorHex(emphasize);
+  if (hex && hex.bg && hex.bg !== 'transparent') {
+    return {
+      bg: '',
+      text: '',
+      style: { backgroundColor: hex.bg, color: hex.text },
+    };
   }
+
+  return {
+    bg: isZebra ? 'bg-[#f4f7fb]' : 'bg-white',
+    text: 'text-slate-800',
+  };
 };
 
 /**
@@ -736,45 +702,40 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
       );
     }
 
-    // Column sort: Only fields with ENABLE checked participate in Sort (RFQ v1.14 Page 3)
-    const enabledSortFields = spec.field_catalog.filter(f => !!f.sort_enable);
-
-    if (enabledSortFields.length > 0) {
-      // Filter interactive sortColumns to only those enabled
-      const activeSortCols = sortColumns.filter(sc =>
-        enabledSortFields.some(ef => ef.fieldname === sc.fieldname)
-      );
-
-      if (activeSortCols.length > 0) {
-        result.sort((a, b) => {
-          for (const sc of activeSortCols) {
-            const valA = a[sc.fieldname];
-            const valB = b[sc.fieldname];
-            let cmp = 0;
-            if (typeof valA === 'number' && typeof valB === 'number') {
-              cmp = sc.asc ? valA - valB : valB - valA;
-            } else {
-              cmp = sc.asc
-                ? String(valA ?? '').localeCompare(String(valB ?? ''))
-                : String(valB ?? '').localeCompare(String(valA ?? ''));
-            }
-            if (cmp !== 0) return cmp;
-          }
-          return 0;
-        });
-      } else if (sortField && enabledSortFields.some(ef => ef.fieldname === sortField)) {
-        result.sort((a, b) => {
-          const valA = a[sortField];
-          const valB = b[sortField];
+    // Column sort:
+    // 1. If user interacted via toolbar sort buttons or column click, sort by sortColumns immediately
+    if (sortColumns.length > 0) {
+      result.sort((a, b) => {
+        for (const sc of sortColumns) {
+          const valA = a[sc.fieldname];
+          const valB = b[sc.fieldname];
+          let cmp = 0;
           if (typeof valA === 'number' && typeof valB === 'number') {
-            return sortAsc ? valA - valB : valB - valA;
+            cmp = sc.asc ? valA - valB : valB - valA;
+          } else {
+            cmp = sc.asc
+              ? String(valA ?? '').localeCompare(String(valB ?? ''))
+              : String(valB ?? '').localeCompare(String(valA ?? ''));
           }
-          return sortAsc
-            ? String(valA || '').localeCompare(String(valB || ''))
-            : String(valB || '').localeCompare(String(valA || ''));
-        });
-      } else {
-        // Multi-column sort by enabled fields ordered by SPOS and respecting UP/DOWN directions
+          if (cmp !== 0) return cmp;
+        }
+        return 0;
+      });
+    } else if (sortField) {
+      result.sort((a, b) => {
+        const valA = a[sortField];
+        const valB = b[sortField];
+        if (typeof valA === 'number' && typeof valB === 'number') {
+          return sortAsc ? valA - valB : valB - valA;
+        }
+        return sortAsc
+          ? String(valA || '').localeCompare(String(valB || ''))
+          : String(valB || '').localeCompare(String(valA || ''));
+      });
+    } else {
+      // 2. Pre-configured enabledSortFields from spec Sort tab
+      const enabledSortFields = spec.field_catalog.filter(f => !!f.sort_enable);
+      if (enabledSortFields.length > 0) {
         const sortedEnabledFields = [...enabledSortFields].sort((a, b) => {
           const sposA = typeof a.spos === 'number' && !isNaN(a.spos) ? a.spos : 999;
           const sposB = typeof b.spos === 'number' && !isNaN(b.spos) ? b.spos : 999;
@@ -1106,8 +1067,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
         </div>
       </div>
 
-      {/* 3. Authentic SAP ALV Toolbar with Dynamic Theme & New RFQ v1.09 Handlers */}
-      {screenMode === 'alv' && !spec.layout?.no_toolbar && (
+      {/* 3. Authentic SAP ALV Toolbar with Dynamic Theme (Omitted for Sample Type 03 where it belongs to ALV Grid pane) */}
+      {screenMode === 'alv' && !spec.layout?.no_toolbar && spec.sample_type !== '03' && (
         <AlvToolbar
           spec={spec}
           theme={currentTheme}
@@ -1118,24 +1079,19 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
           onSort={(asc) => {
             const rawTargets = selectedColumnFields.length > 0
               ? selectedColumnFields
-              : [sortField || spec.field_catalog[1]?.fieldname || 'DOC_NO'];
+              : [sortField || spec.field_catalog[1]?.fieldname || spec.field_catalog[0]?.fieldname || ''].filter(Boolean);
             
-            // Only fields with ENABLE checked in Sort Grid can participate in Sort
-            const validTargets = rawTargets.filter((t) =>
-              spec.field_catalog.some((f) => f.fieldname === t && f.sort_enable)
-            );
-
-            if (validTargets.length === 0) {
+            if (rawTargets.length === 0) {
               setStatusMessage({
-                text: 'Sort 설정에서 ENABLE이 체크된 필드로만 정렬할 수 있습니다. [Sort] 탭에서 해당 필드의 ENABLE을 체크하세요.',
+                text: '정렬할 열을 먼저 선택하세요.',
                 type: 'W',
               });
               return;
             }
 
-            handleMultiSort(validTargets, asc);
+            handleMultiSort(rawTargets, asc);
             setStatusMessage({
-              text: `ENABLE 체크된 ${validTargets.length}개 열 [${validTargets.join(', ')}] 기준 ${
+              text: `${rawTargets.length}개 열 [${rawTargets.join(', ')}] 기준 ${
                 asc ? '오름차순 (Ascending)' : '내림차순 (Descending)'
               } 정렬 완료`,
               type: 'S',
@@ -1249,6 +1205,20 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                   });
                 }}
               />
+            ) : spec.sample_type === '03' ? (
+              <SapTreeAlvSimulator
+                spec={spec}
+                theme={currentTheme}
+                onDrilldown={(tcode, val) => {
+                  setDrilldownInfo({
+                    tcode,
+                    fieldValue: val,
+                    fieldName: 'CARRID',
+                    fieldLabel: '항공사 코드 (Carrier ID)',
+                    rowRecord: { CARRID: val },
+                  });
+                }}
+              />
             ) : isMasterDetail && spec.item_grid ? (
               /* ============================================================= */
               /* MASTER-DETAIL ALV: TOP (HEADER) + BOTTOM (ITEM) PANE           */
@@ -1301,11 +1271,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                               >
                                 <div className="flex items-center justify-between gap-1">
                                   <span>{columnTextMode === 'fieldname' ? field.fieldname : (field.coltext || field.fieldname)}</span>
-                                  {field.sort_enable && sortColumns.some((sc) => sc.fieldname === field.fieldname) ? (
+                                  {sortColumns.some((sc) => sc.fieldname === field.fieldname) ? (
                                     <span className="text-blue-800 font-bold text-[10px]">
                                       {sortColumns.find((sc) => sc.fieldname === field.fieldname)?.asc ? '▲' : '▼'}
                                     </span>
-                                  ) : field.sort_enable && sortField === field.fieldname ? (
+                                  ) : sortField === field.fieldname ? (
                                     <span className="text-blue-800 font-bold text-[10px]">
                                       {sortAsc ? '▲' : '▼'}
                                     </span>
@@ -1381,7 +1351,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                                   return (
                                     <td
                                       key={field.id || field.fieldname}
-                                      style={{ width: colWidth, minWidth: colWidth }}
+                                      style={{
+                                        width: colWidth,
+                                        minWidth: colWidth,
+                                        ...(!isSelected && !isColSelected ? cellStyle.style : {}),
+                                      }}
                                       onClick={(e) => {
                                         if (isStatusCol) {
                                           e.stopPropagation();
@@ -1612,7 +1586,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                                   return (
                                     <td
                                       key={field.id || field.fieldname}
-                                      style={{ width: colWidth, minWidth: colWidth }}
+                                      style={{
+                                        width: colWidth,
+                                        minWidth: colWidth,
+                                        ...(!isSelected ? cellStyle.style : {}),
+                                      }}
                                       className={`px-2 py-1 h-7 border-r border-[#d8d8d8] text-xs font-mono ${
                                         field.just === 'R'
                                           ? 'text-right'
@@ -1756,11 +1734,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                             >
                               <div className="flex items-center justify-between gap-1">
                                 <span>{columnTextMode === 'fieldname' ? field.fieldname : (field.coltext || field.fieldname)}</span>
-                                {field.sort_enable && sortColumns.some((sc) => sc.fieldname === field.fieldname) ? (
+                                {sortColumns.some((sc) => sc.fieldname === field.fieldname) ? (
                                   <span className="text-blue-800 font-bold text-[10px]">
                                     {sortColumns.find((sc) => sc.fieldname === field.fieldname)?.asc ? '▲' : '▼'}
                                   </span>
-                                ) : field.sort_enable && sortField === field.fieldname ? (
+                                ) : sortField === field.fieldname ? (
                                   <span className="text-blue-800 font-bold text-[10px]">
                                     {sortAsc ? '▲' : '▼'}
                                   </span>
@@ -1894,7 +1872,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                                 return (
                                   <td
                                     key={field.id || field.fieldname}
-                                    style={{ width: colWidth, minWidth: colWidth }}
+                                    style={{
+                                      width: colWidth,
+                                      minWidth: colWidth,
+                                      ...(!isSelected && !isColSelected ? cellStyle.style : {}),
+                                    }}
                                     onClick={(e) => {
                                       if (spec.layout?.sel_mode === 'D') {
                                         setSelectedCell({ rIdx, fieldname: field.fieldname });

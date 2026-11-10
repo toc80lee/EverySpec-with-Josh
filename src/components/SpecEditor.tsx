@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileText,
   Database,
@@ -26,9 +26,11 @@ import {
   ListOrdered,
   FileDown,
   FolderOpen,
+  Code,
 } from 'lucide-react';
 import { PdfExportModal } from './PdfExportModal';
 import { SpecManagerModal } from './SpecManagerModal';
+import { SourceCodeEditor } from './SourceCodeEditor';
 import {
   ProgramSpec,
   SapModule,
@@ -67,8 +69,8 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
   onTriggerPrint,
   onOpenTemplates,
 }) => {
-  // Main Tabs: 1. Program Spec -> 2. Selection Screen -> 3. ALV Grid
-  const [mainTab, setMainTab] = useState<'info' | 'selection' | 'alv'>('info');
+  // Main Tabs: 1. Program Spec -> 2. Selection Screen -> 3. Main Screen -> 4. Source Code (RFQ v1.19)
+  const [mainTab, setMainTab] = useState<'info' | 'selection' | 'alv' | 'source'>('info');
 
   // Subtabs for Program Spec (RFQ v1.07 Page 3 & 4):
   // 1. Basic Information & Specification
@@ -79,8 +81,16 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
   // Master-Detail ALV Sub-Grid Selector: Header ALV Grid vs Item ALV Grid
   const [activeGridTab, setActiveGridTab] = useState<'header' | 'item'>('header');
 
-  // ALV Grid Sub Tabs: 1. Layout -> 2. Field Catalog -> 3. Sort -> 4. Toolbar -> 5. Test Case
   const [alvSubTab, setAlvSubTab] = useState<'layout' | 'fields' | 'sort' | 'toolbar' | 'tests'>('layout');
+
+  // RFQ v1.18: In Sample Type 03, Tree tab hides Sort sub-tab
+  const isTreeTab = spec.sample_type === '03' && activeGridTab === 'header';
+
+  useEffect(() => {
+    if (isTreeTab && alvSubTab === 'sort') {
+      setAlvSubTab('fields');
+    }
+  }, [isTreeTab, alvSubTab]);
 
   const [isGeneratingLogic, setIsGeneratingLogic] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
@@ -251,13 +261,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
     }
   };
 
-  // Master-Detail ALV resolution (Sample Type 02)
-  const isMasterDetail = spec.sample_type === '02';
+  // Master-Detail / Dual ALV resolution (Sample Type 02 & Sample Type 03)
+  const isMasterDetail = spec.sample_type === '02' || spec.sample_type === '03';
   const activeIsItem = isMasterDetail && activeGridTab === 'item';
 
   const defaultItemLayout: AlvLayout = {
     zebra: true,
-    grid_title: '영업 오더 품목 ALV Grid (VBAP)',
+    grid_title: spec.sample_type === '03' ? 'Flight Schedule ALV Grid' : '영업 오더 품목 ALV Grid (VBAP)',
     sel_mode: 'A',
     cwidth_opt: true,
     totals_only: false,
@@ -312,11 +322,11 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         ...spec,
         item_grid: {
           ...(spec.item_grid || {
-            grid_name: 'Item ALV Grid',
+            grid_name: spec.sample_type === '03' ? 'Flight Schedule Grid' : 'Item ALV Grid',
             layout: defaultItemLayout,
             field_catalog: [],
             mock_rows: [],
-            foreign_key: 'VBELN',
+            foreign_key: spec.sample_type === '03' ? 'CARRID' : 'VBELN',
           }),
           field_catalog: newCatalog,
           ...(newMockRows ? { mock_rows: newMockRows } : {}),
@@ -510,6 +520,22 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
           >
             <Table className="w-4 h-4 shrink-0" />
             <span>Main Screen</span>
+          </button>
+
+          {/* Main Tab 4: Source Code (RFQ v1.19) */}
+          <button
+            type="button"
+            onClick={() => setMainTab('source')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 relative cursor-pointer ${
+              mainTab === 'source'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+            title="Source Code"
+            aria-label="Source Code"
+          >
+            <Code className="w-4 h-4 shrink-0" />
+            <span>Source Code</span>
           </button>
         </div>
 
@@ -1448,7 +1474,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                         : 'bg-white text-slate-700 hover:bg-blue-100/70 border border-slate-300'
                     }`}
                   >
-                    <span>Header</span>
+                    <span>{spec.sample_type === '03' ? 'Tree' : 'Header'}</span>
                     <span
                       className={`text-[10px] px-1.5 py-0.2 rounded-full ${
                         activeGridTab === 'header' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
@@ -1467,7 +1493,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                         : 'bg-white text-slate-700 hover:bg-blue-100/70 border border-slate-300'
                     }`}
                   >
-                    <span>Item</span>
+                    <span>{spec.sample_type === '03' ? 'Grid' : 'Item'}</span>
                     <span
                       className={`text-[10px] px-1.5 py-0.2 rounded-full ${
                         activeGridTab === 'item' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
@@ -1479,7 +1505,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 </div>
 
                 <div className="text-[11px] text-blue-900 font-medium px-2">
-                  {activeGridTab === 'header' ? 'Editing [Header]' : 'Editing [Item] (Header Key: VBELN)'}
+                  {spec.sample_type === '03'
+                    ? activeGridTab === 'header'
+                      ? 'Editing [Tree] (Carrier Hierarchy)'
+                      : 'Editing [Grid] (Flight Schedule)'
+                    : activeGridTab === 'header'
+                    ? 'Editing [Header]'
+                    : `Editing [Item] (Header Key: ${spec.item_grid?.foreign_key || 'VBELN'})`}
                 </div>
               </div>
             )}
@@ -1519,25 +1551,27 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 </span>
               </button>
 
-              {/* 3. Sort */}
-              <button
-                onClick={() => setAlvSubTab('sort')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-                  alvSubTab === 'sort'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                <ListOrdered className="w-3.5 h-3.5" />
-                <span>Sort</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                    alvSubTab === 'sort' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
+              {/* 3. Sort (Tree 설정에서는 삭제 per RFQ v1.18) */}
+              {!isTreeTab && (
+                <button
+                  onClick={() => setAlvSubTab('sort')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                    alvSubTab === 'sort'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                   }`}
                 >
-                  {activeFieldCatalog.length}
-                </span>
-              </button>
+                  <ListOrdered className="w-3.5 h-3.5" />
+                  <span>Sort</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      alvSubTab === 'sort' ? 'bg-blue-700 text-blue-100' : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {activeFieldCatalog.length}
+                  </span>
+                </button>
+              )}
 
               {/* 4. Toolbar */}
               <button
@@ -1617,7 +1651,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
             )}
 
             {/* Sub-Tab 3: Sort */}
-            {alvSubTab === 'sort' && (
+            {alvSubTab === 'sort' && !isTreeTab && (
               <div className="space-y-4">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
@@ -1893,6 +1927,15 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MAIN TAB 4: 소스 코드 (Source Code Editor - Program, TOP, S01, etc.)      */}
+        {/* ========================================================================= */}
+        {mainTab === 'source' && (
+          <div className="h-full min-h-[600px] flex flex-col">
+            <SourceCodeEditor spec={spec} onChange={onChange} />
           </div>
         )}
       </div>

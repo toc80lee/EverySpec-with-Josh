@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { AlvField, ProgramSpec, SapDataType, TextAlignment } from '../types/sap';
 import { SapSearchHelpModal } from './SapSearchHelpModal';
+import { SapColorSearchHelpModal, getSapColorHex } from './SapColorSearchHelpModal';
 import {
   exportFieldCatalogToTsv,
   copyTsvToClipboard,
@@ -42,6 +43,11 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
 }) => {
   const [showSearchHelp, setShowSearchHelp] = useState(false);
   const [editingFieldIndex, setEditingFieldIndex] = useState<number | null>(null);
+  const [colorHelpTarget, setColorHelpTarget] = useState<{
+    index: number;
+    fieldName: string;
+    currentColor: string;
+  } | null>(null);
 
   // Cell range selection state
   const [selectedRange, setSelectedRange] = useState<CellRange | null>(null);
@@ -662,6 +668,13 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                   const isDropBottom = isOver && dragPosition === 'bottom';
                   const isZicon = field.fieldname === 'ZICON';
                   const canBeCheckbox = !isZicon && field.datatype === 'CHAR' && field.outputlen === 1;
+                  const isDuplicateFieldname =
+                    !isZicon &&
+                    !!field.fieldname?.trim() &&
+                    spec.field_catalog
+                      .slice(0, idx)
+                      .some((prev) => prev.fieldname?.trim().toUpperCase() === field.fieldname.trim().toUpperCase());
+                  const colorStyle = !isZicon && field.emphasize ? getSapColorHex(field.emphasize) : null;
 
                   const cellDropClasses = isDropTop
                     ? 'border-t-2 border-t-blue-600 bg-blue-50/70'
@@ -743,9 +756,12 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                       <td
                         onMouseDown={() => handleCellMouseDown(idx, 0)}
                         onMouseEnter={() => handleCellMouseEnter(idx, 0)}
+                        title={isDuplicateFieldname ? 'Duplicate values exist.' : undefined}
                         className={`p-0 border-r border-slate-200 ${cellDropClasses} ${
                           isCellInRange(selectedRange, idx, 0)
                             ? 'bg-blue-100 ring-1 ring-blue-500'
+                            : isDuplicateFieldname
+                            ? 'bg-rose-50'
                             : ''
                         }`}
                       >
@@ -754,6 +770,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                           value={field.fieldname}
                           disabled={isZicon}
                           data-fcell={`${idx}-fieldname`}
+                          title={isDuplicateFieldname ? 'Duplicate values exist.' : undefined}
                           onFocus={() => {
                             if (!selectedRange) {
                               setSelectedRange({ startRow: idx, startCol: 0, endRow: idx, endCol: 0 });
@@ -768,7 +785,11 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                               fieldname: e.target.value.trim().toUpperCase(),
                             })
                           }
-                          className={`w-full h-8 px-2 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 uppercase font-mono font-bold text-blue-950 ${
+                          className={`w-full h-8 px-2 bg-transparent focus:bg-white focus:outline-none uppercase font-mono font-bold ${
+                            isDuplicateFieldname
+                              ? 'bg-rose-50 text-rose-900 border border-rose-400 ring-1 ring-rose-400 focus:ring-rose-500'
+                              : 'text-blue-950 focus:ring-2 focus:ring-blue-600'
+                          } ${
                             isZicon ? 'opacity-80 bg-slate-50 cursor-not-allowed' : ''
                           }`}
                         />
@@ -913,33 +934,73 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                       <td
                         onMouseDown={() => handleCellMouseDown(idx, 5)}
                         onMouseEnter={() => handleCellMouseEnter(idx, 5)}
-                        className={`p-0 border-r border-slate-200 text-center ${cellDropClasses} ${
+                        style={
+                          colorStyle && colorStyle.bg !== 'transparent'
+                            ? { backgroundColor: colorStyle.bg }
+                            : undefined
+                        }
+                        className={`p-0 border-r border-slate-200 text-center relative group ${cellDropClasses} ${
                           isCellInRange(selectedRange, idx, 5)
                             ? 'bg-blue-100 ring-1 ring-blue-500'
                             : ''
                         }`}
                       >
-                        <input
-                          type="text"
-                          value={field.emphasize || ''}
-                          disabled={isZicon}
-                          data-fcell={`${idx}-emphasize`}
-                          onFocus={() => {
-                            if (!selectedRange) {
-                              setSelectedRange({ startRow: idx, startCol: 5, endRow: idx, endCol: 5 });
+                        <div className="relative flex items-center justify-between w-full h-8 px-1">
+                          <input
+                            type="text"
+                            value={field.emphasize || ''}
+                            disabled={isZicon}
+                            data-fcell={`${idx}-emphasize`}
+                            style={
+                              colorStyle && colorStyle.text !== 'inherit'
+                                ? { color: colorStyle.text }
+                                : undefined
                             }
-                          }}
-                          onKeyDown={(e) => handleCellKeyDown(e, idx, 'emphasize')}
-                          onChange={(e) =>
-                            handleUpdateField(idx, {
-                              emphasize: e.target.value.toUpperCase(),
-                            })
-                          }
-                          placeholder={isZicon ? '' : 'C300'}
-                          className={`w-full h-8 px-1 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 uppercase text-center font-bold text-[10px] ${
-                            isZicon ? 'opacity-80 bg-slate-50 cursor-not-allowed' : ''
-                          }`}
-                        />
+                            onFocus={() => {
+                              if (!selectedRange) {
+                                setSelectedRange({ startRow: idx, startCol: 5, endRow: idx, endCol: 5 });
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'F4' && !isZicon) {
+                                e.preventDefault();
+                                setColorHelpTarget({
+                                  index: idx,
+                                  fieldName: field.fieldname,
+                                  currentColor: field.emphasize || '',
+                                });
+                                return;
+                              }
+                              handleCellKeyDown(e, idx, 'emphasize');
+                            }}
+                            onChange={(e) =>
+                              handleUpdateField(idx, {
+                                emphasize: e.target.value.toUpperCase(),
+                              })
+                            }
+                            placeholder={isZicon ? '' : 'C300'}
+                            className={`w-full h-full bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 uppercase text-center font-bold text-[10px] ${
+                              isZicon ? 'opacity-80 bg-slate-50 cursor-not-allowed' : ''
+                            }`}
+                          />
+                          {!isZicon && (
+                            <button
+                              type="button"
+                              title="SAP ALV Color Search Help (F4)"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setColorHelpTarget({
+                                  index: idx,
+                                  fieldName: field.fieldname,
+                                  currentColor: field.emphasize || '',
+                                });
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-slate-300/60 rounded text-slate-600 hover:text-blue-700 transition-opacity absolute right-1 shrink-0 cursor-pointer"
+                            >
+                              <Search className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
 
                       {/* Col I: Key */}
@@ -1249,6 +1310,20 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
         }}
         onSelect={handleSelectSearchHelp}
       />
+
+      {/* SAP ALV Color Search Help (F4) Modal */}
+      {colorHelpTarget && (
+        <SapColorSearchHelpModal
+          isOpen={!!colorHelpTarget}
+          onClose={() => setColorHelpTarget(null)}
+          fieldName={colorHelpTarget.fieldName}
+          currentColor={colorHelpTarget.currentColor}
+          onSelectColor={(selectedCode) => {
+            handleUpdateField(colorHelpTarget.index, { emphasize: selectedCode });
+            setColorHelpTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 };
