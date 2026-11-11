@@ -395,7 +395,7 @@ export const MermaidDataFlowEditor: React.FC<MermaidDataFlowEditorProps> = ({
             <button
               type="button"
               onClick={() => setIsDetailCollapsed(!isDetailCollapsed)}
-              className="w-6 h-6 rounded bg-blue-600 hover:bg-blue-700 active:scale-95 text-white flex items-center justify-center font-mono font-bold text-xs shadow-xs transition-all cursor-pointer group"
+              className="w-7 h-7 rounded bg-blue-600 hover:bg-blue-700 active:scale-95 text-white flex items-center justify-center font-mono font-bold text-xs shadow-xs transition-all cursor-pointer group"
               title={isDetailCollapsed ? '상세 사양서 펼치기 (클릭)' : '상세 사양서 접기 (클릭)'}
             >
               <span className="group-hover:scale-110 transition-transform">

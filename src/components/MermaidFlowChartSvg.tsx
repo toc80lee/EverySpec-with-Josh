@@ -506,60 +506,96 @@ export function layoutMermaidDiagram(
 ): LayoutedNode[] {
   if (nodes.length === 0) return [];
 
-  const nodeMap = new Map<string, ParsedMermaidNode>();
-  nodes.forEach((n) => nodeMap.set(n.id, n));
+  // Map node ID to index of first appearance in the Mermaid statements
+  const nodeIndex = new Map<string, number>();
+  nodes.forEach((n, idx) => nodeIndex.set(n.id, idx));
 
-  const incomingEdges: Record<string, string[]> = {};
-  const outgoingEdges: Record<string, string[]> = {};
-  nodes.forEach((n) => {
-    incomingEdges[n.id] = [];
-    outgoingEdges[n.id] = [];
-  });
-
-  edges.forEach((e) => {
-    if (incomingEdges[e.to]) incomingEdges[e.to].push(e.from);
-    if (outgoingEdges[e.from]) outgoingEdges[e.from].push(e.to);
-  });
-
-  const nodeLayers: Record<string, number> = {};
+  // Identify back-edges: edges that loop backward (or cause cycles)
+  // In SAP / Mermaid workflows, nodes are authored in chronological sequence.
+  // Any edge pointing backwards in appearance order (or creating a cycle) is a loop-back edge.
+  const backEdgeIds = new Set<string>();
+  const visiting = new Set<string>();
   const visited = new Set<string>();
 
-  const roots = nodes.filter((n) => incomingEdges[n.id].length === 0);
-  const queue: { id: string; layer: number }[] =
-    roots.length > 0
-      ? roots.map((r) => ({ id: r.id, layer: 0 }))
-      : [{ id: nodes[0].id, layer: 0 }];
+  function dfs(u: string) {
+    visiting.add(u);
+    const outEdges = edges.filter((e) => e.from === u);
+    for (const e of outEdges) {
+      const v = e.to;
+      const uIdx = nodeIndex.get(u) ?? 0;
+      const vIdx = nodeIndex.get(v) ?? 0;
 
-  queue.forEach((q) => {
-    nodeLayers[q.id] = 0;
-    visited.add(q.id);
+      if (vIdx <= uIdx || visiting.has(v)) {
+        backEdgeIds.add(e.id);
+      } else if (!visited.has(v)) {
+        dfs(v);
+      }
+    }
+    visiting.delete(u);
+    visited.add(u);
+  }
+
+  nodes.forEach((n) => {
+    if (!visited.has(n.id)) {
+      dfs(n.id);
+    }
+  });
+
+  // Build DAG using strictly forward edges to assign clean, uniform downward layers
+  const forwardEdges = edges.filter((e) => !backEdgeIds.has(e.id));
+  const incomingForward: Record<string, string[]> = {};
+  const outgoingForward: Record<string, string[]> = {};
+  nodes.forEach((n) => {
+    incomingForward[n.id] = [];
+    outgoingForward[n.id] = [];
+  });
+
+  forwardEdges.forEach((e) => {
+    if (incomingForward[e.to]) incomingForward[e.to].push(e.from);
+    if (outgoingForward[e.from]) outgoingForward[e.from].push(e.to);
+  });
+
+  // Topological / BFS longest-path on forward DAG
+  const inDegree: Record<string, number> = {};
+  const nodeLayers: Record<string, number> = {};
+  nodes.forEach((n) => {
+    inDegree[n.id] = (incomingForward[n.id] || []).length;
+    nodeLayers[n.id] = 0;
+  });
+
+  const queue: string[] = [];
+  nodes.forEach((n) => {
+    if (inDegree[n.id] === 0) {
+      queue.push(n.id);
+      nodeLayers[n.id] = 0;
+    }
   });
 
   while (queue.length > 0) {
-    const { id, layer } = queue.shift()!;
-    const children = outgoingEdges[id] || [];
+    const currId = queue.shift()!;
+    const currLayer = nodeLayers[currId] || 0;
+    const children = outgoingForward[currId] || [];
 
     for (const childId of children) {
-      const nextLayer = layer + 1;
-      if (nodeLayers[childId] === undefined || nextLayer > nodeLayers[childId]) {
-        nodeLayers[childId] = nextLayer;
-      }
-      if (!visited.has(childId)) {
-        visited.add(childId);
-        queue.push({ id: childId, layer: nextLayer });
+      nodeLayers[childId] = Math.max(nodeLayers[childId] || 0, currLayer + 1);
+      inDegree[childId]--;
+      if (inDegree[childId] === 0) {
+        queue.push(childId);
       }
     }
   }
 
+  // Handle any nodes not reached by forward roots
   nodes.forEach((n) => {
     if (nodeLayers[n.id] === undefined) {
       nodeLayers[n.id] = 0;
     }
   });
 
+  // Group nodes by layer
   const layersMap: Record<number, ParsedMermaidNode[]> = {};
   nodes.forEach((n) => {
-    const l = nodeLayers[n.id] || 0;
+    const l = nodeLayers[n.id];
     if (!layersMap[l]) layersMap[l] = [];
     layersMap[l].push(n);
   });
@@ -568,13 +604,16 @@ export function layoutMermaidDiagram(
     .map(Number)
     .sort((a, b) => a - b);
 
-  const layouted: LayoutedNode[] = [];
+  // Compact dimensions per RFQ v1.24:
+  // - Fixed layerStepY ensures every vertical gap between consecutive steps is identical and uniform
+  // - Reduced node height and vertical pitch minimizes total flowchart height
   const isTD = direction === 'TD';
-
   const nodeW = 160;
-  const nodeH = 46;
-  const gapX = 40;
-  const gapY = 56;
+  const standardNodeH = 38; // Compact node height (reduced from 46)
+  const gapX = 32; // Horizontal gap between sibling nodes
+  const layerStepY = 70; // Uniform vertical pitch between layers (reduced from 102)
+  const topPadding = 24;
+  const sidePadding = 75; // Margin for side-loop curves
 
   let maxLayerBreadth = 0;
   layerIndices.forEach((l) => {
@@ -583,36 +622,39 @@ export function layoutMermaidDiagram(
   });
 
   const totalCanvasWidth = Math.max(
-    600,
-    maxLayerBreadth * (nodeW + gapX) + 80
+    660,
+    maxLayerBreadth * (nodeW + gapX) + sidePadding * 2
   );
+
+  const layouted: LayoutedNode[] = [];
 
   layerIndices.forEach((layerIndex) => {
     const layerNodes = layersMap[layerIndex];
     const layerBreadth = layerNodes.length * nodeW + (layerNodes.length - 1) * gapX;
     const startX = (totalCanvasWidth - layerBreadth) / 2;
+    const layerCenterY = topPadding + layerIndex * layerStepY;
 
     layerNodes.forEach((node, idx) => {
       let w = nodeW;
-      let h = nodeH;
+      let h = standardNodeH;
 
       if (node.shape === 'diamond') {
         w = 160;
-        h = 58;
+        h = 44; // Compact diamond height
       } else if (node.shape === 'cylinder') {
         w = 160;
-        h = 54;
+        h = 42; // Compact cylinder height
       } else if (node.shape === 'stadium' || node.shape === 'circle') {
-        w = 170;
-        h = 44;
+        w = 165;
+        h = 36; // Compact capsule/stadium height
       }
 
       const x = isTD
-        ? startX + idx * (nodeW + gapX)
-        : 40 + layerIndex * (nodeW + gapX);
+        ? Math.round(startX + idx * (nodeW + gapX))
+        : Math.round(sidePadding + layerIndex * (nodeW + gapX));
       const y = isTD
-        ? 30 + layerIndex * (nodeH + gapY)
-        : 30 + idx * (nodeH + gapY);
+        ? Math.round(layerCenterY - h / 2)
+        : Math.round(topPadding + idx * (standardNodeH + 20));
 
       layouted.push({
         ...node,
@@ -664,14 +706,14 @@ export const MermaidFlowChartSvg: React.FC<MermaidFlowChartSvgProps> = ({
     let maxX = 0;
     let maxY = 0;
     layoutedNodes.forEach((n) => {
-      const right = n.x + n.width + 40;
-      const bottom = n.y + n.height + 40;
+      const right = n.x + n.width + 65;
+      const bottom = n.y + n.height + 35;
       if (right > maxX) maxX = right;
       if (bottom > maxY) maxY = bottom;
     });
     return {
-      width: Math.max(620, maxX),
-      height: Math.max(340, maxY),
+      width: Math.max(660, maxX),
+      height: Math.max(260, maxY),
     };
   }, [layoutedNodes]);
 
@@ -706,7 +748,7 @@ export const MermaidFlowChartSvg: React.FC<MermaidFlowChartSvgProps> = ({
           refY="5"
           markerWidth="6"
           markerHeight="6"
-          orient="auto-start-reverse"
+          orient="auto"
         >
           <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748b" />
         </marker>
@@ -725,15 +767,58 @@ export const MermaidFlowChartSvg: React.FC<MermaidFlowChartSvgProps> = ({
         const isSelectedEdge =
           !readOnly && (selectedNodeId === edge.from || selectedNodeId === edge.to);
 
-        // Compute connection points
-        const startX = source.x + source.width / 2;
-        const startY = source.y + source.height;
-        const endX = target.x + target.width / 2;
-        const endY = target.y;
+        const isBackEdge = target.layer <= source.layer || target.y <= source.y + 10;
 
-        // Smooth curve control points
-        const midY = (startY + endY) / 2;
-        const pathD = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
+        let pathD = '';
+        let labelX = 0;
+        let labelY = 0;
+
+        if (isBackEdge) {
+          // Backward loop edge: route around the side gracefully without crossing over nodes
+          const routeLeft = source.x <= svgBounds.width / 2;
+
+          if (routeLeft) {
+            // Route along the left side
+            const startX = source.x;
+            const startY = source.y + source.height / 2;
+            const endX = target.x;
+            const endY = target.y + target.height / 2;
+            const curveX = Math.min(startX, endX) - 45;
+
+            pathD = `M ${startX} ${startY} C ${curveX} ${startY}, ${curveX} ${endY}, ${endX} ${endY}`;
+            labelX = curveX + 4;
+            labelY = (startY + endY) / 2;
+          } else {
+            // Route along the right side
+            const startX = source.x + source.width;
+            const startY = source.y + source.height / 2;
+            const endX = target.x + target.width;
+            const endY = target.y + target.height / 2;
+            const curveX = Math.max(startX, endX) + 45;
+
+            pathD = `M ${startX} ${startY} C ${curveX} ${startY}, ${curveX} ${endY}, ${endX} ${endY}`;
+            labelX = curveX - 4;
+            labelY = (startY + endY) / 2;
+          }
+        } else {
+          // Forward edge: flows downward
+          const startX = source.x + source.width / 2;
+          const startY = source.y + source.height;
+          const endX = target.x + target.width / 2;
+          const endY = target.y;
+
+          if (Math.abs(startX - endX) < 2) {
+            // Perfectly straight vertical line (uniform pitch)
+            pathD = `M ${startX} ${startY} L ${endX} ${endY}`;
+          } else {
+            // Smooth vertical S-curve
+            const midY = (startY + endY) / 2;
+            pathD = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
+          }
+
+          labelX = (startX + endX) / 2;
+          labelY = (startY + endY) / 2;
+        }
 
         return (
           <g key={edge.id} className="transition-all">
@@ -748,7 +833,7 @@ export const MermaidFlowChartSvg: React.FC<MermaidFlowChartSvgProps> = ({
 
             {/* Edge label badge */}
             {edge.label && (
-              <g transform={`translate(${(startX + endX) / 2}, ${midY})`}>
+              <g transform={`translate(${labelX}, ${labelY})`}>
                 <rect
                   x={-Math.max(16, edge.label.length * 5)}
                   y="-9"
