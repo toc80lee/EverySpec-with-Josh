@@ -44,6 +44,10 @@ export interface AlvField {
   spos?: number;           // 정렬 순서 (LVC_S_SORT-SPOS: 1, 2, 3...)
   sort_up?: boolean;       // 오름차순 여부 (LVC_S_SORT-UP: 'X' 또는 ' ')
   sort_down?: boolean;     // 내림차순 여부 (LVC_S_SORT-DOWN: 'X' 또는 ' ')
+  subtot?: boolean;        // LVC_S_SORT-SUBTOT: 'X' 소계 계산 (Subtotal break)
+  subtotal?: boolean;      // alias for subtot
+  group?: string | boolean;// LVC_S_SORT-GROUP: 그룹화 및 페이지 나누기 ('*', 'UL' 등)
+  expa?: boolean;          // LVC_S_SORT-EXPA: 'X' 소계 레벨 펼침 (Expand subtotal)
   decimals?: number;       // 소수점 자릿수 (LVC_S_FCAT-DECIMALS)
 }
 
@@ -214,12 +218,22 @@ export interface CanvasEdge {
   style?: 'orthogonal' | 'curved' | 'straight';
 }
 
+export interface DataFlowNodeDetail {
+  id: string;
+  label?: string;
+  shape?: string;
+  markdown: string;
+}
+
 export interface DataFlowDiagramConfig {
   title?: string;
   steps?: DataFlowStep[];
   databases?: DataFlowDatabase[];
   nodes?: CanvasNode[];
   edges?: CanvasEdge[];
+  mermaid_code?: string;
+  node_details?: Record<string, { label?: string; markdown: string }>;
+  active_node_id?: string;
 }
 
 export interface SubAlvGridConfig {
@@ -241,7 +255,10 @@ export interface AlvSortField {
   spos: number;
   up?: boolean;
   down?: boolean;
+  subtot?: boolean;
   subtotal?: boolean;
+  group?: string | boolean;
+  expa?: boolean;
 }
 
 export interface SpecChangeHistoryItem {
@@ -269,6 +286,7 @@ export interface ProgramSpec {
   title: string;           // e.g. 영업 오더 진행 및 출하 모니터링
   module: SapModule;       // SD, MM, FI, etc.
   author: string;          // e.g. 홍길동 책임
+  cds_view_table?: string; // e.g. ACDOCA, I_JournalEntryItem (For Sample Type 04)
   created_date: string;    // YYYY-MM-DD
   target_sap_release: string; // e.g. SAP S/4HANA 2023 / ECC 6.0
   program_type: 'REPORT' | 'TRANSACTION';

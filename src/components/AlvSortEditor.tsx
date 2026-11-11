@@ -50,7 +50,10 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
   // 3: COLTEXT (Read-only)
   // 4: UP (Ascending checkbox)
   // 5: DOWN (Descending checkbox)
-  const SORT_COL_COUNT = 6;
+  // 6: SUBTOT (Subtotal break)
+  // 7: GROUP (Group/Page break)
+  // 8: EXPA (Expand subtotal)
+  const SORT_COL_COUNT = 9;
 
   const getSortCellValue = (rowIdx: number, colIdx: number): string => {
     const field = spec.field_catalog[rowIdx];
@@ -70,6 +73,12 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
         return field.sort_enable && field.sort_up ? 'X' : '';
       case 5:
         return field.sort_enable && field.sort_down ? 'X' : '';
+      case 6:
+        return field.sort_enable && (field.subtot || field.subtotal) ? 'X' : '';
+      case 7:
+        return field.sort_enable && field.group ? String(field.group) : '';
+      case 8:
+        return field.sort_enable && field.expa ? 'X' : '';
       default:
         return '';
     }
@@ -192,6 +201,26 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
             }
             break;
           }
+          case 6: { // SUBTOT
+            if (targetField.sort_enable) {
+              const isSubtot = isTruthy(trimmed);
+              targetField.subtot = isSubtot;
+              targetField.subtotal = isSubtot;
+            }
+            break;
+          }
+          case 7: { // GROUP
+            if (targetField.sort_enable) {
+              targetField.group = trimmed.toUpperCase();
+            }
+            break;
+          }
+          case 8: { // EXPA
+            if (targetField.sort_enable) {
+              targetField.expa = isTruthy(trimmed);
+            }
+            break;
+          }
         }
       });
 
@@ -209,12 +238,15 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
   };
 
   const handleCopyTable = async () => {
-    const lines = ['ENABLE\tSPOS\tFIELDNAME\tCOLTEXT\tUP\tDOWN'];
+    const lines = ['ENABLE\tSPOS\tFIELDNAME\tCOLTEXT\tUP\tDOWN\tSUBTOT\tGROUP\tEXPA'];
     spec.field_catalog.forEach((f) => {
       const sposVal = f.sort_enable ? (f.spos !== undefined && f.spos !== null ? String(f.spos) : '') : '';
       const upVal = f.sort_enable && f.sort_up ? 'X' : '';
       const downVal = f.sort_enable && f.sort_down ? 'X' : '';
-      lines.push(`${f.sort_enable ? 'X' : ''}\t${sposVal}\t${f.fieldname}\t${f.coltext}\t${upVal}\t${downVal}`);
+      const subtotVal = f.sort_enable && (f.subtot || f.subtotal) ? 'X' : '';
+      const groupVal = f.sort_enable && f.group ? String(f.group) : '';
+      const expaVal = f.sort_enable && f.expa ? 'X' : '';
+      lines.push(`${f.sort_enable ? 'X' : ''}\t${sposVal}\t${f.fieldname}\t${f.coltext}\t${upVal}\t${downVal}\t${subtotVal}\t${groupVal}\t${expaVal}`);
     });
     await copyTsvToClipboard(lines.join('\n'));
   };
@@ -375,6 +407,21 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
     }
   };
 
+  // Toggle SUBTOT checkbox (subtotal break)
+  const handleToggleSubtot = (idx: number) => {
+    const field = spec.field_catalog[idx];
+    if (!field || !field.sort_enable) return;
+    const nextVal = !(field.subtot || field.subtotal);
+    handleUpdateField(idx, { subtot: nextVal, subtotal: nextVal });
+  };
+
+  // Toggle EXPA checkbox (expand subtotal levels)
+  const handleToggleExpa = (idx: number) => {
+    const field = spec.field_catalog[idx];
+    if (!field || !field.sort_enable) return;
+    handleUpdateField(idx, { expa: !field.expa });
+  };
+
   // Validation: Check if any ENABLED field has empty or invalid SPOS
   const emptySposFields = spec.field_catalog.filter(
     (f) => f.sort_enable && (f.spos === undefined || f.spos === null || isNaN(f.spos) || f.spos <= 0)
@@ -451,11 +498,11 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                   <div className="text-[9px] text-slate-400 font-mono">B</div>
                   <div>ENABLE</div>
                 </th>
-                <th className="py-1 px-1.5 text-center w-16 border-r border-slate-200" title="Sort Sequence (LVC_S_SORT-SPOS: ENABLE 체크 시 필수)">
+                <th className="py-1 px-1.5 text-center w-16 border-r border-slate-200" title="SPOS (Sort Position): Specifies the numerical order of the sort (e.g., 1 for primary sort, 2 for secondary sort).">
                   <div className="text-[9px] text-slate-400 font-mono">C</div>
                   <div>SPOS</div>
                 </th>
-                <th className="py-1 px-2 min-w-36 border-r border-slate-200 font-mono">
+                <th className="py-1 px-2 min-w-36 border-r border-slate-200 font-mono" title="FIELDNAME: The technical name of the field/column in the output table to be sorted.">
                   <div className="text-[9px] text-slate-400 font-mono">D</div>
                   <div>FIELDNAME</div>
                 </th>
@@ -463,13 +510,25 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                   <div className="text-[9px] text-slate-400 font-mono">E</div>
                   <div>COLTEXT</div>
                 </th>
-                <th className="py-1 px-1.5 text-center w-14 border-r border-slate-200" title="오름차순 (LVC_S_SORT-UP: 'X' or ' ')">
+                <th className="py-1 px-1.5 text-center w-14 border-r border-slate-200" title="UP: Set to 'X' for ascending (Up) sort order.">
                   <div className="text-[9px] text-slate-400 font-mono">F</div>
                   <div>UP</div>
                 </th>
-                <th className="py-1 px-1.5 text-center w-14 border-r border-slate-200" title="내림차순 (LVC_S_SORT-DOWN: 'X' or ' ')">
+                <th className="py-1 px-1.5 text-center w-14 border-r border-slate-200" title="DOWN: Set to 'X' for descending (Down) sort order.">
                   <div className="text-[9px] text-slate-400 font-mono">G</div>
                   <div>DOWN</div>
+                </th>
+                <th className="py-1 px-1.5 text-center w-16 border-r border-slate-200" title="SUBTOT (Subtotal): Set to 'X' to calculate a subtotal break whenever the value of this sort field changes.">
+                  <div className="text-[9px] text-slate-400 font-mono">H</div>
+                  <div>SUBTOT</div>
+                </th>
+                <th className="py-1 px-1.5 text-center w-20 border-r border-slate-200" title="GROUP: Controls grouping or page-break options during sorting/printing.">
+                  <div className="text-[9px] text-slate-400 font-mono">I</div>
+                  <div>GROUP</div>
+                </th>
+                <th className="py-1 px-1.5 text-center w-16 border-r border-slate-200" title="EXPA (Expand): Set to 'X' to automatically expand subtotal levels when the ALV is displayed.">
+                  <div className="text-[9px] text-slate-400 font-mono">J</div>
+                  <div>EXPA</div>
                 </th>
                 <th className="py-1 px-2 text-center w-32">
                   <div className="text-[9px] text-slate-400 font-mono">ACTIONS</div>
@@ -480,7 +539,7 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
             <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
               {spec.field_catalog.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-10 text-center text-slate-400 font-sans">
+                  <td colSpan={12} className="py-10 text-center text-slate-400 font-sans">
                     <div className="flex flex-col items-center justify-center gap-1.5">
                       <FileSpreadsheet className="w-6 h-6 text-slate-300" />
                       <p className="font-medium">No fields registered.</p>
@@ -754,6 +813,106 @@ export const AlvSortEditor: React.FC<AlvSortEditorProps> = ({
                             onChange={(e) => {
                               e.stopPropagation();
                               handleToggleDown(idx);
+                            }}
+                            className={`w-4 h-4 rounded border-slate-300 focus:ring-blue-500 ${
+                              !isEnabled
+                                ? 'cursor-not-allowed opacity-40'
+                                : 'cursor-pointer text-blue-600'
+                            }`}
+                          />
+                        </div>
+                      </td>
+
+                      {/* Col H: SUBTOT (LVC_S_SORT-SUBTOT: 'X' or ' ') */}
+                      <td
+                        onMouseDown={() => handleCellMouseDown(idx, 6)}
+                        onMouseEnter={() => handleCellMouseEnter(idx, 6)}
+                        onClick={() => isEnabled && handleToggleSubtot(idx)}
+                        className={`py-1 px-1.5 text-center border-r border-slate-200 select-none ${cellDropClasses} ${
+                          !isEnabled
+                            ? 'bg-slate-50/60 cursor-not-allowed opacity-50'
+                            : 'cursor-pointer hover:bg-blue-50/50'
+                        } ${
+                          isCellInRange(selectedRange, idx, 6)
+                            ? 'bg-blue-100 ring-1 ring-blue-500'
+                            : ''
+                        }`}
+                        title="SUBTOT (Subtotal): Set to 'X' to calculate a subtotal break whenever the value of this sort field changes."
+                      >
+                        <div className="flex items-center justify-center h-8">
+                          <input
+                            type="checkbox"
+                            disabled={!isEnabled}
+                            checked={isEnabled && !!(field.subtot || field.subtotal)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleToggleSubtot(idx);
+                            }}
+                            className={`w-4 h-4 rounded border-slate-300 focus:ring-blue-500 ${
+                              !isEnabled
+                                ? 'cursor-not-allowed opacity-40'
+                                : 'cursor-pointer text-blue-600'
+                            }`}
+                          />
+                        </div>
+                      </td>
+
+                      {/* Col I: GROUP (LVC_S_SORT-GROUP: Controls grouping / page-break options) */}
+                      <td
+                        onMouseDown={() => handleCellMouseDown(idx, 7)}
+                        onMouseEnter={() => handleCellMouseEnter(idx, 7)}
+                        className={`p-0 border-r border-slate-200 text-center ${cellDropClasses} ${
+                          isCellInRange(selectedRange, idx, 7)
+                            ? 'bg-blue-100 ring-1 ring-blue-500'
+                            : ''
+                        }`}
+                        title="GROUP: Controls grouping or page-break options during sorting/printing."
+                      >
+                        <div className="flex items-center justify-center h-8 px-1">
+                          {isEnabled ? (
+                            <select
+                              value={field.group ? String(field.group) : ''}
+                              disabled={!isEnabled}
+                              onChange={(e) => {
+                                handleUpdateField(idx, { group: e.target.value });
+                              }}
+                              className="w-16 h-7 text-center font-mono text-[11px] font-semibold bg-white border border-slate-300 rounded focus:border-blue-500 focus:outline-none"
+                              title="GROUP: Controls grouping or page-break options during sorting/printing."
+                            >
+                              <option value="">-</option>
+                              <option value="*">* (New Page)</option>
+                              <option value="UL">UL (Underline)</option>
+                            </select>
+                          ) : (
+                            <span className="text-slate-300 font-mono select-none text-xs">-</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Col J: EXPA (LVC_S_SORT-EXPA: 'X' or ' ') */}
+                      <td
+                        onMouseDown={() => handleCellMouseDown(idx, 8)}
+                        onMouseEnter={() => handleCellMouseEnter(idx, 8)}
+                        onClick={() => isEnabled && handleToggleExpa(idx)}
+                        className={`py-1 px-1.5 text-center border-r border-slate-200 select-none ${cellDropClasses} ${
+                          !isEnabled
+                            ? 'bg-slate-50/60 cursor-not-allowed opacity-50'
+                            : 'cursor-pointer hover:bg-blue-50/50'
+                        } ${
+                          isCellInRange(selectedRange, idx, 8)
+                            ? 'bg-blue-100 ring-1 ring-blue-500'
+                            : ''
+                        }`}
+                        title="EXPA (Expand): Set to 'X' to automatically expand subtotal levels when the ALV is displayed."
+                      >
+                        <div className="flex items-center justify-center h-8">
+                          <input
+                            type="checkbox"
+                            disabled={!isEnabled}
+                            checked={isEnabled && !!field.expa}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleToggleExpa(idx);
                             }}
                             className={`w-4 h-4 rounded border-slate-300 focus:ring-blue-500 ${
                               !isEnabled

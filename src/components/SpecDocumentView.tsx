@@ -22,6 +22,12 @@ import {
 import { ProgramSpec, AlvField, TestCase } from '../types/sap';
 import { generateSpecMarkdown, downloadFile, exportFieldCatalogCsv } from '../utils/specExport';
 import { InteractiveDataFlowCanvas } from './InteractiveDataFlowCanvas';
+import {
+  MermaidFlowChartSvg,
+  getEffectiveDataFlow,
+  parseMermaidCode,
+  layoutMermaidDiagram,
+} from './MermaidFlowChartSvg';
 import { getSapAlvCellStyle } from './SapGuiMockup';
 import { validateSapTCode } from '../utils/sapValidation';
 import { PdfExportModal } from './PdfExportModal';
@@ -123,6 +129,105 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
     });
     return sumMap;
   }, [spec.item_grid]);
+
+  // Synchronized Data Flow & Detailed Technical Specs (RFQ v1.23)
+  const effectiveFlow = useMemo(() => getEffectiveDataFlow(spec), [spec]);
+  const parsedFlow = useMemo(
+    () => parseMermaidCode(effectiveFlow.mermaidCode),
+    [effectiveFlow.mermaidCode]
+  );
+  const layoutedFlowNodes = useMemo(
+    () => layoutMermaidDiagram(parsedFlow.nodes, parsedFlow.edges, parsedFlow.direction),
+    [parsedFlow]
+  );
+
+  const formatPrintInline = (text: string) => {
+    const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <strong key={i} className="font-bold text-slate-900">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith('`') && part.endsWith('`')) {
+        return (
+          <code key={i} className="bg-slate-100 text-blue-800 px-1 py-0.2 rounded font-mono text-[11px] border border-slate-200">
+            {part.slice(1, -1)}
+          </code>
+        );
+      }
+      return part;
+    });
+  };
+
+  const renderPrintMarkdown = (content: string) => {
+    if (!content || !content.trim()) {
+      return <p className="text-slate-400 italic text-xs">상세 사양이 기술되지 않았습니다.</p>;
+    }
+
+    const lines = content.split('\n');
+    return (
+      <div className="space-y-1 text-xs text-slate-800 leading-relaxed font-sans">
+        {lines.map((line, idx) => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('# ')) {
+            return (
+              <h4 key={idx} className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-0.5 mt-2">
+                {trimmed.substring(2)}
+              </h4>
+            );
+          }
+          if (trimmed.startsWith('## ')) {
+            return (
+              <h5 key={idx} className="text-xs font-bold text-blue-900 mt-1.5">
+                {trimmed.substring(3)}
+              </h5>
+            );
+          }
+          if (trimmed.startsWith('### ') || trimmed.startsWith('#### ')) {
+            const depth = trimmed.startsWith('#### ') ? 5 : 4;
+            return (
+              <h6 key={idx} className="text-xs font-semibold text-slate-900 mt-1">
+                {trimmed.substring(depth)}
+              </h6>
+            );
+          }
+          if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+            return (
+              <li key={idx} className="ml-4 list-disc text-slate-700">
+                {formatPrintInline(trimmed.substring(2))}
+              </li>
+            );
+          }
+          if (/^\d+\.\s/.test(trimmed)) {
+            const numMatch = trimmed.match(/^\d+\.\s/);
+            return (
+              <li key={idx} className="ml-4 list-decimal text-slate-700">
+                {formatPrintInline(trimmed.substring(numMatch![0].length))}
+              </li>
+            );
+          }
+          if (trimmed.startsWith('> ')) {
+            return (
+              <blockquote key={idx} className="pl-2 border-l-2 border-blue-500 text-slate-600 bg-blue-50/50 py-0.5 rounded-r">
+                {formatPrintInline(trimmed.substring(2))}
+              </blockquote>
+            );
+          }
+          if (!trimmed) {
+            return <div key={idx} className="h-1" />;
+          }
+          return (
+            <p key={idx} className="text-slate-800">
+              {formatPrintInline(line)}
+            </p>
+          );
+        })}
+      </div>
+    );
+  };
 
   // Active toolbar buttons
   const activeToolbarButtons =
@@ -1142,7 +1247,7 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
                       {spec.data_extraction_logic}
                     </div>
 
-                    {/* 5.1 Program Process Flow Diagram */}
+                    {/* 5.1 Program Process Flow Diagram (RFQ v1.23: Synchronized with Mermaid Flow Chart) */}
                     {includeDataFlow && (
                       <div className="space-y-2 pt-1 print-avoid-break">
                         <div className="flex items-center justify-between">
@@ -1154,13 +1259,71 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
                             표준 순서도 다이어그램 벡터 뷰
                           </span>
                         </div>
-                        <div className="border border-slate-300 rounded-lg p-2 bg-white flex justify-center overflow-visible">
-                          <InteractiveDataFlowCanvas
-                            spec={spec}
-                            config={spec.data_flow}
-                            onChange={() => {}}
-                            readOnly
+                        <div className="border border-slate-300 rounded-lg p-3 bg-white flex justify-center overflow-x-auto print-avoid-break">
+                          <MermaidFlowChartSvg
+                            mermaidCode={effectiveFlow.mermaidCode}
+                            nodeDetails={effectiveFlow.nodeDetails}
+                            readOnly={true}
+                            fitToWidth={true}
+                            className="w-full"
                           />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 5.2 상세 기술 사양서 (RFQ v1.23: Detailed Technical Specifications from Data Flow) */}
+                    {includeDataFlow && layoutedFlowNodes.length > 0 && (
+                      <div className="space-y-3 pt-3 print-avoid-break">
+                        <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                          <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            <span className="w-2 h-2 bg-blue-600 rounded-xs" />
+                            <span>5.2 상세 기술 사양서 (Detailed Technical Specifications)</span>
+                          </h3>
+                          <span className="text-[10px] font-mono text-slate-500">
+                            Flow Chart 단계별 상세 처리 로직 명세
+                          </span>
+                        </div>
+
+                        <div className="space-y-2.5">
+                          {layoutedFlowNodes.map((node) => {
+                            const detail = effectiveFlow.nodeDetails[node.id];
+                            const md = detail?.markdown || '';
+                            const label = detail?.label || node.label || node.id;
+                            const shapeText =
+                              node.shape === 'diamond'
+                                ? '조건 분기'
+                                : node.shape === 'cylinder'
+                                ? '데이터베이스'
+                                : node.shape === 'stadium'
+                                ? '시작/종료'
+                                : node.shape === 'round'
+                                ? '화면 제어'
+                                : '비즈니스 처리';
+
+                            return (
+                              <div
+                                key={node.id}
+                                className="border border-slate-300 rounded bg-white overflow-hidden shadow-2xs print-avoid-break"
+                              >
+                                <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="px-1.5 py-0.5 rounded bg-blue-700 text-white font-mono font-bold text-[10px]">
+                                      단계 [{node.id}]
+                                    </span>
+                                    <span className="font-bold text-xs text-slate-900">
+                                      {label}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                    {shapeText}
+                                  </span>
+                                </div>
+                                <div className="p-3 bg-white">
+                                  {renderPrintMarkdown(md)}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}

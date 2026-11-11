@@ -48,6 +48,7 @@ import { AlvLayoutSpreadsheet } from './AlvLayoutSpreadsheet';
 import { SelectionScreenEditor } from './SelectionScreenEditor';
 import { ToolbarEditor } from './ToolbarEditor';
 import { DataFlowEditor } from './DataFlowEditor';
+import { MarkdownFieldEditor } from './MarkdownFieldEditor';
 import { SapSearchHelpModal } from './SapSearchHelpModal';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 import { SAMPLE_SPECS } from '../data/sampleSpecs';
@@ -690,10 +691,11 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Program ID
+                  Program ID <span className="text-red-500 font-bold">*</span>
                 </label>
                 <input
                   type="text"
+                  required
                   value={spec.program_id}
                   onChange={(e) => onChange({ ...spec, program_id: e.target.value })}
                   onBlur={(e) => onChange({ ...spec, program_id: e.target.value.trim().toUpperCase() })}
@@ -754,7 +756,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
               <div className="md:col-span-2">
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-semibold text-slate-700">
-                    Transaction Code (T-Code)
+                    Transaction Code (T-Code) <span className="text-red-500 font-bold">*</span>
                   </label>
                   {tcodeValidation.isValid ? (
                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
@@ -778,6 +780,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 <div className="relative">
                   <input
                     type="text"
+                    required
                     value={spec.tcode}
                     onChange={(e) => {
                       onChange({ ...spec, tcode: e.target.value });
@@ -872,27 +875,46 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
 
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Program Title
+                  Program Title <span className="text-red-500 font-bold">*</span>
                 </label>
                 <input
                   type="text"
+                  required
                   value={spec.title}
                   onChange={(e) => onChange({ ...spec, title: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500"
                 />
               </div>
 
-              <div className="md:col-span-2">
+              <div className={spec.sample_type === '04' ? 'md:col-span-2' : 'md:col-span-2'}>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Author
+                  Author <span className="text-red-500 font-bold">*</span>
                 </label>
                 <input
                   type="text"
+                  required
                   value={spec.author}
                   onChange={(e) => onChange({ ...spec, author: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500"
                 />
               </div>
+
+              {/* Sample Type 04 only: CDS View/Table required field (RFQ v1.20 Page 3 & v1.21) */}
+              {spec.sample_type === '04' && (
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    CDS View/Table <span className="text-red-500 font-bold">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={spec.cds_view_table || ''}
+                    onChange={(e) => onChange({ ...spec, cds_view_table: e.target.value.toUpperCase() })}
+                    placeholder="예: ACDOCA, BSEG, I_JournalEntryItem"
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-mono font-bold uppercase text-blue-900 focus:bg-white focus:border-blue-500"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Business Purpose with Voice Input */}
@@ -983,12 +1005,12 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 </div>
               )}
 
-              <textarea
-                rows={4}
+              <MarkdownFieldEditor
                 value={spec.business_purpose}
-                onChange={(e) => onChange({ ...spec, business_purpose: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-300 rounded p-2.5 text-xs leading-relaxed text-slate-800 focus:bg-white focus:border-blue-500 shadow-inner"
-                placeholder="Describe business background, target users, and key objectives. (Type directly or use Voice Input above. Generated text can be freely edited)"
+                onChange={(val) => onChange({ ...spec, business_purpose: val })}
+                rows={4}
+                minHeight="120px"
+                placeholder="업무 배경, 개발 목적, 대상 사용자 및 기대 효과를 마크다운(# 제목, - 목록, **굵게**, `코드`) 형식으로 입력해 주세요. (음성 입력 기능 및 직접 편집 지원)"
               />
             </div>
 
@@ -1115,12 +1137,12 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 </div>
               )}
 
-              <textarea
-                rows={7}
+              <MarkdownFieldEditor
                 value={spec.data_extraction_logic}
-                onChange={(e) => onChange({ ...spec, data_extraction_logic: e.target.value })}
-                className="w-full bg-slate-900 text-slate-100 border border-slate-800 rounded p-2.5 font-mono text-xs leading-relaxed focus:border-blue-500 shadow-inner"
-                placeholder="Define database tables, JOIN and WHERE conditions, status traffic lights logic (LIGHTS=1/2/3), or click '✨ Propose Logic with AI' above to receive recommendations. Transcribed text can be edited freely at any time."
+                onChange={(val) => onChange({ ...spec, data_extraction_logic: val })}
+                rows={7}
+                minHeight="180px"
+                placeholder="원천 DB 테이블, JOIN 및 WHERE 조건, 신호등 상태 로직(LIGHTS=1/2/3), 집계 기준 등을 마크다운(# 제목, - 목록, `테이블/필드명`) 형식으로 입력해 주세요. 상단 '✨ Propose Logic with AI' 버튼을 클릭하여 자동 제안받을 수도 있습니다."
               />
             </div>
 

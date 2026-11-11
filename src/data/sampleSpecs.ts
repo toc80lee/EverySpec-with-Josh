@@ -1264,6 +1264,7 @@ export const SAMPLE_SPECS: ProgramSpec[] = [
     title: 'Pivot Brower',
     module: 'FI',
     author: 'Josh Lee',
+    cds_view_table: 'ACDOCA',
     created_date: '2026-11-06',
     target_sap_release: 'SAP S/4HANA 2023 / ECC 6.0',
     program_type: 'REPORT',

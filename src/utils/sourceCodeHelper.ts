@@ -220,8 +220,6 @@ export function generateDefaultTopSource(spec: Partial<ProgramSpec>): string {
 *--------------------------------------------------------------------*
 * Screen 0110
 *--------------------------------------------------------------------*
-DATA: gv_title_0110 TYPE sy-title,
-      go_dock_0110  TYPE REF TO cl_gui_docking_container.
 " - Grid
 CONSTANTS:
   gc_grid_0110 TYPE c LENGTH 30 VALUE 'GRID_0110',

@@ -57,6 +57,17 @@ ${spec.data_extraction_logic}
 | 번호 | 테스트 시나리오 | 입력 조건 | 예상 결과 |
 |:---:|:---|:---|:---|
 ${spec.test_cases.length > 0 ? spec.test_cases.map((tc, idx) => `| ${idx + 1} | ${tc.scenario} | ${tc.condition} | ${tc.expected} |`).join('\n') : '| 1 | 정상 조회 테스트 | 기본 파라미터 입력 | ALV 그리드 결과 정상 표시 |'}
+
+---
+
+## 8. 프로그램 처리 흐름도 및 상세 기술 사양서
+### 8.1 프로그램 처리 흐름도 (Mermaid Data Flow)
+\`\`\`mermaid
+${spec.data_flow?.mermaid_code || 'graph TD;\n  A[시작] --> B[종료];'}
+\`\`\`
+
+### 8.2 상세 기술 사양서 (Detailed Technical Specifications)
+${spec.data_flow?.node_details && Object.keys(spec.data_flow.node_details).length > 0 ? Object.entries(spec.data_flow.node_details).map(([k, v]) => `#### [${k}] ${v.label || k}\n${v.markdown}\n`).join('\n---\n\n') : '- Data Flow 단계별 상세 사양서가 기술되어 있습니다.'}
 `;
 }
 

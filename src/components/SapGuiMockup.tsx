@@ -1062,7 +1062,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
             }`}
           >
             <Layers className="w-3 h-3 text-blue-700" />
-            ALV Grid Result
+            Main Screen
           </button>
         </div>
       </div>
