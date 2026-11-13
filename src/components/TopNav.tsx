@@ -9,12 +9,17 @@ import {
   FileDown,
   User,
   Palette,
+  PanelTop,
+  PanelLeft,
+  PanelBottom,
+  PanelRight,
 } from 'lucide-react';
 import { ProgramSpec } from '../types/sap';
 import { getCurrentUser, setCurrentUser, PRESET_USERS, CurrentUser } from '../utils/authStorage';
 import { SapGuiTheme, SAP_GUI_THEMES } from '../data/sapGuiThemes';
 
 export type MainWorkspaceMode = 'split' | 'mockup_only' | 'editor_only' | 'abap_code' | 'document';
+export type DualSplitLayout = 'top-bottom' | 'left-right' | 'bottom-top' | 'right-left';
 
 interface TopNavProps {
   currentMode: MainWorkspaceMode;
@@ -28,6 +33,8 @@ interface TopNavProps {
   onGenerateMockData?: () => void;
   currentTheme?: SapGuiTheme;
   onSelectTheme?: (theme: SapGuiTheme) => void;
+  splitLayout?: DualSplitLayout;
+  onCycleSplitLayout?: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -42,6 +49,8 @@ export const TopNav: React.FC<TopNavProps> = ({
   onGenerateMockData,
   currentTheme = 'blue_crystal',
   onSelectTheme,
+  splitLayout = 'left-right',
+  onCycleSplitLayout,
 }) => {
   const [user, setUser] = useState<CurrentUser>(getCurrentUser());
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -50,8 +59,12 @@ export const TopNav: React.FC<TopNavProps> = ({
     <header className="no-print flex items-center justify-between gap-6 px-5 py-3 bg-slate-900 border-b border-slate-800 text-white shrink-0">
       {/* Zone 1: Brand Wordmark (Single text element) */}
       <div className="flex items-center gap-3 shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-black text-xs text-white shadow-md border border-blue-400/30">
-          ES
+        <div className="w-8 h-8 rounded-lg bg-white p-0.5 flex items-center justify-center shadow-md border border-slate-700 overflow-hidden shrink-0">
+          <img
+            src="/assets/aistudio/Logo_436f33a7.png"
+            alt="EverySpec with Josh Logo"
+            className="w-full h-full object-contain"
+          />
         </div>
         <div className="leading-tight">
           <div className="font-extrabold text-sm tracking-tight text-white whitespace-nowrap">
@@ -79,6 +92,35 @@ export const TopNav: React.FC<TopNavProps> = ({
         >
           <SplitSquareVertical className="w-4 h-4" />
         </button>
+
+        {/* Dual Screen 4-Way Layout Toggle: 상하 -> 좌우 -> 하상 -> 우좌 (Only visible in Dual Screen mode) */}
+        {currentMode === 'split' && onCycleSplitLayout && (
+          <button
+            type="button"
+            onClick={onCycleSplitLayout}
+            className="p-2 text-cyan-300 hover:text-white hover:bg-slate-700/60 rounded-md transition-all flex items-center justify-center cursor-pointer border border-slate-700/80 bg-slate-800"
+            title={
+              splitLayout === 'top-bottom'
+                ? '화면 전환 (현재: 상하 → 다음: 좌우)'
+                : splitLayout === 'left-right'
+                ? '화면 전환 (현재: 좌우 → 다음: 하상)'
+                : splitLayout === 'bottom-top'
+                ? '화면 전환 (현재: 하상 → 다음: 우좌)'
+                : '화면 전환 (현재: 우좌 → 다음: 상하)'
+            }
+            aria-label="Dual Screen Layout Toggle"
+          >
+            {splitLayout === 'top-bottom' ? (
+              <PanelTop className="w-4 h-4" />
+            ) : splitLayout === 'left-right' ? (
+              <PanelLeft className="w-4 h-4" />
+            ) : splitLayout === 'bottom-top' ? (
+              <PanelBottom className="w-4 h-4" />
+            ) : (
+              <PanelRight className="w-4 h-4" />
+            )}
+          </button>
+        )}
 
         {/* 2. Simulation */}
         <button

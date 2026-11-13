@@ -12,10 +12,7 @@ import {
   Plus,
   Trash2,
   Table,
-  Mic,
-  MicOff,
   Sparkles,
-  Loader2,
   Check,
   Download,
   Upload,
@@ -52,10 +49,9 @@ import { MarkdownFieldEditor } from './MarkdownFieldEditor';
 import { SapSearchHelpModal } from './SapSearchHelpModal';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 import { SAMPLE_SPECS } from '../data/sampleSpecs';
-import { useVoiceInput } from '../hooks/useVoiceInput';
-import { requestAiLogicGeneration } from '../utils/aiLogicGenerator';
 import { downloadExcelTemplate, parseUploadedExcelOrCsv } from '../utils/excelTemplateHelper';
 import { validateSapTCode, suggestCustomerTCode } from '../utils/sapValidation';
+import { PRESET_USERS } from '../utils/authStorage';
 
 interface SpecEditorProps {
   spec: ProgramSpec;
@@ -93,9 +89,6 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
     }
   }, [isTreeTab, alvSubTab]);
 
-  const [isGeneratingLogic, setIsGeneratingLogic] = useState(false);
-  const [aiMessage, setAiMessage] = useState<string | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
 
   // SAP T-Code Naming Standard Validation (Customer Namespace: Z... or Y...)
@@ -142,27 +135,39 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
     ref_field?: string;
     obligatory?: boolean;
     default_val?: string;
+    block_title?: string;
+    block_id?: string;
+    radio_group?: string;
   }): SelectionParameter => {
     const kind: SelectionKind = paramData?.kind || 'PARAMETER';
-    const isParam = kind === 'PARAMETER';
+    const isSelectOpt = kind === 'SELECT_OPTION';
+    const isRadioOrChk = kind === 'RADIOBUTTON' || kind === 'CHECKBOX';
     const nextIdx = spec.selection_params.length + 1;
 
     // Field Name: e.g. P_BUKRS, S_VBELN
-    const defaultName = isParam ? `P_FLD${nextIdx}` : `S_FLD${nextIdx}`;
+    const defaultName = isSelectOpt ? `S_FLD${nextIdx}` : `P_FLD${nextIdx}`;
     const name = (paramData?.name || defaultName).trim().toUpperCase();
 
     // Data Type: e.g. CHAR, DATS, CURR, etc.
-    const datatype: SapDataType = paramData?.datatype || 'CHAR';
+    const datatype: SapDataType = isRadioOrChk ? 'CHAR' : paramData?.datatype || 'CHAR';
 
     // Length: e.g. 10, 4, 18, 8
-    const length =
-      Number(paramData?.length) > 0
-        ? Number(paramData?.length)
-        : datatype === 'DATS'
-        ? 8
-        : datatype === 'TIMS'
-        ? 6
-        : 10;
+    const length = isRadioOrChk
+      ? 1
+      : Number(paramData?.length) > 0
+      ? Number(paramData?.length)
+      : datatype === 'DATS'
+      ? 8
+      : datatype === 'TIMS'
+      ? 6
+      : 10;
+
+    const cleanBlockTitle = paramData?.block_title?.trim() || undefined;
+    const cleanBlockId = paramData?.block_id?.trim() || undefined;
+    const cleanRadioGroup =
+      kind === 'RADIOBUTTON'
+        ? (paramData?.radio_group?.trim().toUpperCase().slice(0, 4) || 'R1')
+        : undefined;
 
     const newParam: SelectionParameter = {
       id: `param-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -170,11 +175,22 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
       name,
       datatype,
       length,
-      text: paramData?.text?.trim() || (isParam ? `파라미터 항목 ${nextIdx}` : `선택 범위 항목 ${nextIdx}`),
+      text:
+        paramData?.text?.trim() ||
+        (isSelectOpt
+          ? `선택 범위 항목 ${nextIdx}`
+          : kind === 'RADIOBUTTON'
+          ? `라디오 옵션 ${nextIdx}`
+          : kind === 'CHECKBOX'
+          ? `체크박스 항목 ${nextIdx}`
+          : `파라미터 항목 ${nextIdx}`),
       ref_table: paramData?.ref_table?.trim().toUpperCase() || '',
       ref_field: paramData?.ref_field?.trim().toUpperCase() || '',
-      obligatory: !!paramData?.obligatory,
+      obligatory: isRadioOrChk ? false : !!paramData?.obligatory,
       default_val: paramData?.default_val?.trim() || '',
+      block_title: cleanBlockTitle,
+      block_id: cleanBlockId,
+      radio_group: cleanRadioGroup,
       low: '',
       high: '',
       sign: 'I',
@@ -184,65 +200,6 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
     const updated = [...spec.selection_params, newParam];
     onChange({ ...spec, selection_params: updated });
     return newParam;
-  };
-
-  // Voice input for Business Purpose
-  const businessVoice = useVoiceInput({
-    lang: 'ko-KR',
-    onResult: (finalText) => {
-      const prev = spec.business_purpose || '';
-      const updated = prev ? `${prev} ${finalText}` : finalText;
-      onChange({ ...spec, business_purpose: updated });
-    },
-  });
-
-  // Voice input for Extraction Logic
-  const logicVoice = useVoiceInput({
-    lang: 'ko-KR',
-    onResult: (finalText) => {
-      const prev = spec.data_extraction_logic || '';
-      const updated = prev ? `${prev}\n${finalText}` : finalText;
-      onChange({ ...spec, data_extraction_logic: updated });
-    },
-  });
-
-  // Handle AI Logic Proposal
-  const handleSuggestLogic = async () => {
-    if (!spec.business_purpose?.trim()) {
-      setAiError("먼저 '업무 개요 및 개발 목적'을 텍스트 또는 상단 '음성 입력'으로 입력해주세요.");
-      setTimeout(() => setAiError(null), 6000);
-      return;
-    }
-
-    setIsGeneratingLogic(true);
-    setAiMessage(null);
-    setAiError(null);
-    try {
-      const res = await requestAiLogicGeneration({
-        business_purpose: spec.business_purpose,
-        module: spec.module,
-        program_id: spec.program_id,
-        title: spec.title,
-        existing_fields: spec.field_catalog.map(f => f.fieldname),
-      });
-
-      onChange({
-        ...spec,
-        data_extraction_logic: res.logic,
-      });
-
-      setAiMessage(
-        res.source === 'ai'
-          ? 'Gemini AI가 제안한 데이터 추출 및 가공 로직이 적용되었습니다. 필요에 맞게 자유롭게 수정하세요.'
-          : 'SAP 모듈 표준 추출 로직이 제안되었습니다. 필요에 맞게 자유롭게 수정하세요.'
-      );
-      setTimeout(() => setAiMessage(null), 7000);
-    } catch (err: any) {
-      setAiError(`로직 생성 중 오류가 발생했습니다: ${err.message}`);
-      setTimeout(() => setAiError(null), 7000);
-    } finally {
-      setIsGeneratingLogic(false);
-    }
   };
 
   // Switch or configure sample type (01: Single ALV, 02: Master-Detail, 03: Tree ALV)
@@ -890,13 +847,23 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Author <span className="text-red-500 font-bold">*</span>
                 </label>
-                <input
-                  type="text"
+                <select
                   required
-                  value={spec.author}
+                  value={
+                    PRESET_USERS.some((u) => u.name === spec.author)
+                      ? spec.author
+                      : PRESET_USERS[0].name
+                  }
                   onChange={(e) => onChange({ ...spec, author: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500"
-                />
+                  aria-label="Author"
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500 cursor-pointer"
+                >
+                  {PRESET_USERS.map((u) => (
+                    <option key={u.id} value={u.name}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Sample Type 04 only: CDS View/Table required field (RFQ v1.20 Page 3 & v1.21) */}
@@ -917,232 +884,43 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
               )}
             </div>
 
-            {/* Business Purpose with Voice Input */}
+            {/* Business Purpose */}
             <div>
-              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Business Purpose
-                </label>
-
-                {/* Voice Input Button & Action Bar (Icon-only with tooltip, RFQ v1.07 Page 4 & 5) */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={businessVoice.toggleListening}
-                    disabled={businessVoice.isTranscribing}
-                    className={`p-1.5 text-xs font-semibold rounded-md flex items-center justify-center transition-all shadow-2xs cursor-pointer ${
-                      businessVoice.isListening
-                        ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse ring-2 ring-rose-400'
-                        : businessVoice.isTranscribing
-                        ? 'bg-indigo-600 text-white cursor-wait'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
-                    }`}
-                    title={
-                      businessVoice.isListening
-                        ? '음성 녹음 중... 클릭하여 녹음 완료 및 텍스트 변환'
-                        : businessVoice.isTranscribing
-                        ? 'Gemini AI 음성 변환 중...'
-                        : 'Voice Input: 음성으로 업무 목적(Business Purpose) 입력하기'
-                    }
-                    aria-label="Voice Input (Speech-to-Text)"
-                  >
-                    {businessVoice.isListening ? (
-                      <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
-                    ) : businessVoice.isTranscribing ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                    ) : (
-                      <Mic className="w-3.5 h-3.5 text-blue-600" />
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      businessVoice.insertSimulatedVoiceText(
-                        'Monitor monthly sales orders and billing status against credit limits to identify delinquent accounts and revenue risks via an ALV grid report.'
-                      )
-                    }
-                    className="px-2 py-1 text-[11px] text-slate-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded transition-colors"
-                    title="Insert sample voice text directly"
-                  >
-                    Voice Sample
-                  </button>
-                </div>
-              </div>
-
-              {businessVoice.isListening && (
-                <div className="mb-2 p-2.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping shrink-0" />
-                    <span>🎙️ Listening to speech... Click <strong>[Stop]</strong> when finished speaking.</span>
-                  </div>
-                  {businessVoice.transcript && (
-                    <span className="font-semibold text-rose-950 italic">"{businessVoice.transcript}"</span>
-                  )}
-                </div>
-              )}
-
-              {businessVoice.isTranscribing && (
-                <div className="mb-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-800 flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
-                  <span>Gemini AI is analyzing and transcribing speech to text...</span>
-                </div>
-              )}
-
-              {businessVoice.errorMessage && (
-                <div className="mb-2 p-2.5 bg-amber-50 border border-amber-300 rounded text-xs text-amber-900 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 font-bold">⚠️</span>
-                    <span>{businessVoice.errorMessage}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={businessVoice.clearError}
-                    className="text-[11px] text-amber-700 hover:underline shrink-0"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              )}
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Business Purpose
+              </label>
 
               <MarkdownFieldEditor
                 value={spec.business_purpose}
                 onChange={(val) => onChange({ ...spec, business_purpose: val })}
                 rows={4}
                 minHeight="120px"
-                placeholder="업무 배경, 개발 목적, 대상 사용자 및 기대 효과를 마크다운(# 제목, - 목록, **굵게**, `코드`) 형식으로 입력해 주세요. (음성 입력 기능 및 직접 편집 지원)"
+                placeholder="업무 배경, 개발 목적, 대상 사용자 및 기대 효과를 마크다운(# 제목, - 목록, **굵게**, `코드`) 형식으로 입력해 주세요."
+                aiContext={{
+                  section: 'business_purpose',
+                  sectionTitle: 'Business Purpose',
+                  spec,
+                }}
               />
             </div>
 
-            {/* Data Extraction & Logic with Voice Input and AI Proposal */}
+            {/* Data Extraction & Logic */}
             <div>
-              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Data Extraction & Logic
-                </label>
-
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {/* Voice input button - Icon only with tooltip (RFQ v1.07 Page 4 & 5) */}
-                  <button
-                    type="button"
-                    onClick={logicVoice.toggleListening}
-                    disabled={logicVoice.isTranscribing}
-                    className={`p-1.5 text-xs font-semibold rounded-md flex items-center justify-center transition-all shadow-2xs cursor-pointer ${
-                      logicVoice.isListening
-                        ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse ring-2 ring-rose-400'
-                        : logicVoice.isTranscribing
-                        ? 'bg-indigo-600 text-white cursor-wait'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
-                    }`}
-                    title={
-                      logicVoice.isListening
-                        ? '음성 녹음 중... 클릭하여 녹음 완료 및 텍스트 변환'
-                        : logicVoice.isTranscribing
-                        ? 'Gemini AI 음성 변환 중...'
-                        : 'Voice Input: 음성으로 추출 로직(Data Extraction & Logic) 입력하기'
-                    }
-                    aria-label="Voice Input (Speech-to-Text)"
-                  >
-                    {logicVoice.isListening ? (
-                      <MicOff className="w-3.5 h-3.5 text-white animate-bounce" />
-                    ) : logicVoice.isTranscribing ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                    ) : (
-                      <Mic className="w-3.5 h-3.5 text-blue-600" />
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      logicVoice.insertSimulatedVoiceText(
-                        '1. Query VBAK/VBAP for sales order headers and items,\n2. Join with VBRK/VBRP to evaluate billing status,\n3. Set status lights (LIGHTS=3 Red) for unbilled overdue orders.'
-                      )
-                    }
-                    className="px-2 py-1 text-[11px] text-slate-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded transition-colors"
-                    title="Insert sample logic text directly"
-                  >
-                    Sample Logic
-                  </button>
-
-                  {/* AI Suggest Logic Button */}
-                  <button
-                    type="button"
-                    onClick={handleSuggestLogic}
-                    disabled={isGeneratingLogic}
-                    className="px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-md flex items-center gap-1.5 transition-all shadow-2xs disabled:opacity-50 cursor-pointer"
-                    title="Automatically propose SAP standard table joins and extraction logic using Gemini AI based on Business Purpose."
-                  >
-                    {isGeneratingLogic ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                        <span>Generating Logic...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>✨ Propose Logic with AI</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {aiMessage && (
-                <div className="mb-2 p-2.5 bg-emerald-50 border border-emerald-300 rounded text-xs text-emerald-800 flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>{aiMessage}</span>
-                </div>
-              )}
-
-              {aiError && (
-                <div className="mb-2 p-2.5 bg-rose-50 border border-rose-300 rounded text-xs text-rose-800 flex items-center gap-2">
-                  <span className="font-bold text-rose-600">⚠️</span>
-                  <span>{aiError}</span>
-                </div>
-              )}
-
-              {logicVoice.isListening && (
-                <div className="mb-2 p-2.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping shrink-0" />
-                    <span>🎙️ Listening to logic speech... Click <strong>[Stop]</strong> when finished speaking.</span>
-                  </div>
-                  {logicVoice.transcript && (
-                    <span className="font-semibold text-rose-950 italic">"{logicVoice.transcript}"</span>
-                  )}
-                </div>
-              )}
-
-              {logicVoice.isTranscribing && (
-                <div className="mb-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-800 flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
-                  <span>Gemini AI is analyzing and transcribing logic speech to text...</span>
-                </div>
-              )}
-
-              {logicVoice.errorMessage && (
-                <div className="mb-2 p-2.5 bg-amber-50 border border-amber-300 rounded text-xs text-amber-900 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 font-bold">⚠️</span>
-                    <span>{logicVoice.errorMessage}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={logicVoice.clearError}
-                    className="text-[11px] text-amber-700 hover:underline shrink-0"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              )}
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Data Extraction & Logic
+              </label>
 
               <MarkdownFieldEditor
                 value={spec.data_extraction_logic}
                 onChange={(val) => onChange({ ...spec, data_extraction_logic: val })}
                 rows={7}
                 minHeight="180px"
-                placeholder="원천 DB 테이블, JOIN 및 WHERE 조건, 신호등 상태 로직(LIGHTS=1/2/3), 집계 기준 등을 마크다운(# 제목, - 목록, `테이블/필드명`) 형식으로 입력해 주세요. 상단 '✨ Propose Logic with AI' 버튼을 클릭하여 자동 제안받을 수도 있습니다."
+                placeholder="원천 DB 테이블, JOIN 및 WHERE 조건, 신호등 상태 로직(LIGHTS=1/2/3), 집계 기준 등을 마크다운(# 제목, - 목록, `테이블/필드명`) 형식으로 입력해 주세요. 상단 툴바의 녹음 또는 AI 제안 버튼을 활용할 수 있습니다."
+                aiContext={{
+                  section: 'data_extraction_logic',
+                  sectionTitle: 'Data Extraction & Logic',
+                  spec,
+                }}
               />
             </div>
 
@@ -1176,7 +954,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Define input criteria (PARAMETERS & SELECT-OPTIONS) with field names, data types, lengths, and reference tables.
+                  Define input criteria (PARAMETERS, SELECT-OPTIONS, RADIOBUTTON GROUPS) and organize them into titled frame boxes.
                 </p>
               </div>
             </div>

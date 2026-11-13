@@ -12,6 +12,8 @@
  *   - Must not collide with reserved SAP standard transactions (e.g., VA01, MM03, SE38)
  */
 
+import { AlvField, SapDataType } from '../types/sap';
+
 export type SapValidationSeverity = 'success' | 'warning' | 'error' | 'info';
 
 export type SapTCodeValidationStatus =
@@ -263,5 +265,196 @@ export function validateSapProgramId(programId: string): SapTCodeValidationResul
     ruleName: 'SAP_PROGRAM_COMPLIANT',
     message: `Valid SAP customer Program ID (${firstChar}-namespace).`,
     details: 'Conforms to SAP customer development naming standards.',
+  };
+}
+
+// ============================================================================
+// SAP ALV Field Catalog (LVC_T_FCAT) Real-Time Validation Layer
+// ============================================================================
+
+export const VALID_SAP_FIELD_TYPES: readonly SapDataType[] = [
+  'CHAR',
+  'NUMC',
+  'DATS',
+  'TIMS',
+  'CURR',
+  'DEC',
+  'UNIT',
+  'INT4',
+  'STRING',
+  'CUKY',
+] as const;
+
+export const VALID_SAP_FIELD_TYPE_SET = new Set<string>(VALID_SAP_FIELD_TYPES);
+
+export function isValidSapFieldType(datatype: string | undefined | null): boolean {
+  if (!datatype || typeof datatype !== 'string') return false;
+  return VALID_SAP_FIELD_TYPE_SET.has(datatype.trim().toUpperCase());
+}
+
+export interface FieldCatalogRowValidation {
+  invalidDatatype: boolean;
+  datatypeMessage?: string;
+  duplicateColPos: boolean;
+  invalidColPos: boolean;
+  colPosMessage?: string;
+  duplicateFieldname: boolean;
+  fieldnameMessage?: string;
+  hasAnyIssue: boolean;
+}
+
+export interface FieldCatalogValidationIssue {
+  rowIndex: number;
+  fieldname: string;
+  category: 'invalid_type' | 'duplicate_pos' | 'invalid_pos' | 'duplicate_fieldname';
+  message: string;
+}
+
+export interface FieldCatalogValidationSummary {
+  isValid: boolean;
+  totalIssueCount: number;
+  rowErrors: Record<number, FieldCatalogRowValidation>;
+  issues: FieldCatalogValidationIssue[];
+  invalidTypeRows: number[];
+  duplicateColPosValues: number[];
+  invalidColPosRows: number[];
+  duplicateFieldnames: string[];
+}
+
+/**
+ * Validates an ALV Field Catalog (LVC_T_FCAT) in real time:
+ * - Checks for invalid or unrecognized SAP DDIC field types
+ * - Checks for duplicate or invalid (<= 0 / missing) column positions (COL_POS)
+ * - Checks for duplicate technical fieldnames
+ */
+export function validateFieldCatalog(fields: AlvField[]): FieldCatalogValidationSummary {
+  const rowErrors: Record<number, FieldCatalogRowValidation> = {};
+  const issues: FieldCatalogValidationIssue[] = [];
+  const invalidTypeRows: number[] = [];
+  const invalidColPosRows: number[] = [];
+
+  // Track col_pos occurrences -> row indices
+  const posOccurrences = new Map<number, number[]>();
+  // Track fieldname occurrences -> row indices
+  const nameOccurrences = new Map<string, number[]>();
+
+  fields.forEach((field, idx) => {
+    const pos = field.col_pos;
+    if (typeof pos === 'number' && Number.isInteger(pos) && pos >= 1) {
+      const list = posOccurrences.get(pos) || [];
+      list.push(idx);
+      posOccurrences.set(pos, list);
+    }
+
+    const name = (field.fieldname || '').trim().toUpperCase();
+    if (name) {
+      const list = nameOccurrences.get(name) || [];
+      list.push(idx);
+      nameOccurrences.set(name, list);
+    }
+  });
+
+  const duplicateColPosValues: number[] = [];
+  posOccurrences.forEach((indices, pos) => {
+    if (indices.length > 1) {
+      duplicateColPosValues.push(pos);
+    }
+  });
+  duplicateColPosValues.sort((a, b) => a - b);
+
+  const duplicateFieldnames: string[] = [];
+  nameOccurrences.forEach((indices, name) => {
+    if (indices.length > 1) {
+      duplicateFieldnames.push(name);
+    }
+  });
+
+  fields.forEach((field, idx) => {
+    const displayFieldname = field.fieldname?.trim() || `Row ${idx + 1}`;
+    const rawType = (field.datatype ?? '').toString().trim().toUpperCase();
+    const invalidDatatype = !isValidSapFieldType(rawType);
+
+    let datatypeMessage: string | undefined;
+    if (invalidDatatype) {
+      invalidTypeRows.push(idx);
+      datatypeMessage = rawType
+        ? `Invalid SAP field type '${rawType}'. Valid types: ${VALID_SAP_FIELD_TYPES.join(', ')}.`
+        : `SAP field type is required. Valid types: ${VALID_SAP_FIELD_TYPES.join(', ')}.`;
+      issues.push({
+        rowIndex: idx,
+        fieldname: displayFieldname,
+        category: 'invalid_type',
+        message: `Row ${idx + 1} (${displayFieldname}): ${datatypeMessage}`,
+      });
+    }
+
+    const pos = field.col_pos;
+    const invalidColPos = typeof pos !== 'number' || isNaN(pos) || !Number.isInteger(pos) || pos < 1;
+    const posConflictingRows = !invalidColPos ? (posOccurrences.get(pos) || []) : [];
+    const duplicateColPos = !invalidColPos && posConflictingRows.length > 1;
+
+    let colPosMessage: string | undefined;
+    if (invalidColPos) {
+      invalidColPosRows.push(idx);
+      colPosMessage = 'Column position (COL_POS) must be a positive integer >= 1.';
+      issues.push({
+        rowIndex: idx,
+        fieldname: displayFieldname,
+        category: 'invalid_pos',
+        message: `Row ${idx + 1} (${displayFieldname}): ${colPosMessage}`,
+      });
+    } else if (duplicateColPos) {
+      const otherRowLabels = posConflictingRows
+        .filter((r) => r !== idx)
+        .map((r) => `#${r + 1} (${fields[r]?.fieldname?.trim() || 'unnamed'})`)
+        .join(', ');
+      colPosMessage = `Duplicate column position (COL_POS = ${pos}) conflicts with row ${otherRowLabels}.`;
+      issues.push({
+        rowIndex: idx,
+        fieldname: displayFieldname,
+        category: 'duplicate_pos',
+        message: `Row ${idx + 1} (${displayFieldname}): ${colPosMessage}`,
+      });
+    }
+
+    const upperName = (field.fieldname || '').trim().toUpperCase();
+    const nameConflictingRows = upperName ? (nameOccurrences.get(upperName) || []) : [];
+    const duplicateFieldname = nameConflictingRows.length > 1;
+    let fieldnameMessage: string | undefined;
+    if (duplicateFieldname) {
+      const otherRows = nameConflictingRows
+        .filter((r) => r !== idx)
+        .map((r) => `#${r + 1}`)
+        .join(', ');
+      fieldnameMessage = `Duplicate fieldname '${upperName}' (also in row ${otherRows}).`;
+      issues.push({
+        rowIndex: idx,
+        fieldname: displayFieldname,
+        category: 'duplicate_fieldname',
+        message: `Row ${idx + 1} (${upperName}): ${fieldnameMessage}`,
+      });
+    }
+
+    rowErrors[idx] = {
+      invalidDatatype,
+      datatypeMessage,
+      duplicateColPos,
+      invalidColPos,
+      colPosMessage,
+      duplicateFieldname,
+      fieldnameMessage,
+      hasAnyIssue: invalidDatatype || duplicateColPos || invalidColPos || duplicateFieldname,
+    };
+  });
+
+  return {
+    isValid: issues.length === 0,
+    totalIssueCount: issues.length,
+    rowErrors,
+    issues,
+    invalidTypeRows,
+    duplicateColPosValues,
+    invalidColPosRows,
+    duplicateFieldnames,
   };
 }

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Plus,
   Trash2,
@@ -14,10 +14,24 @@ import {
   Search,
   FileSpreadsheet,
   Copy,
+  AlertTriangle,
+  CheckCircle2,
+  Wand2,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { AlvField, ProgramSpec, SapDataType, TextAlignment } from '../types/sap';
 import { SapSearchHelpModal } from './SapSearchHelpModal';
-import { SapColorSearchHelpModal, getSapColorHex } from './SapColorSearchHelpModal';
+import {
+  SapColorSearchHelpModal,
+  getSapColorHex,
+  SAP_ALV_COLORS,
+} from './SapColorSearchHelpModal';
+import {
+  validateFieldCatalog,
+  VALID_SAP_FIELD_TYPES,
+  isValidSapFieldType,
+} from '../utils/sapValidation';
 import {
   exportFieldCatalogToTsv,
   copyTsvToClipboard,
@@ -25,7 +39,6 @@ import {
   CellRange,
   isCellInRange,
   extractCellRangeTsv,
-  normalizeDataType,
   defaultLengthForType,
   isTruthy,
 } from '../utils/spreadsheetClipboard';
@@ -54,6 +67,15 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
   const [isMouseDown, setIsMouseDown] = useState(false);
   const dragAnchorRef = useRef<{ row: number; col: number } | null>(null);
 
+  // Color Context Menu dropdown state
+  const [openColorMenu, setOpenColorMenu] = useState<{
+    rowIndex: number;
+    top: number;
+    left: number;
+    openUpward: boolean;
+  } | null>(null);
+  const colorMenuRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     const handleMouseUp = () => {
       setIsMouseDown(false);
@@ -61,6 +83,31 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, []);
+
+  useEffect(() => {
+    if (!openColorMenu) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (colorMenuRef.current && colorMenuRef.current.contains(target)) return;
+      if (target.closest('[data-color-trigger="true"]')) return;
+      setOpenColorMenu(null);
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenColorMenu(null);
+    };
+    const handleScroll = (e: Event) => {
+      if (colorMenuRef.current && colorMenuRef.current.contains(e.target as Node)) return;
+      setOpenColorMenu(null);
+    };
+    window.addEventListener('mousedown', handleOutsideClick);
+    window.addEventListener('keydown', handleEsc);
+    window.addEventListener('scroll', handleScroll, true);
+    return () => {
+      window.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('keydown', handleEsc);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [openColorMenu]);
 
   // Total data columns in Fcat table = 14 (Col C to P)
   // 0: FIELDNAME
@@ -225,10 +272,10 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
             break;
           case 2: // TYPE
             if (trimmed) {
-              const dt = normalizeDataType(trimmed);
-              targetField.datatype = dt;
-              if (!rowVals[cOffset + 1]) {
-                targetField.outputlen = defaultLengthForType(dt);
+              const upperType = trimmed.toUpperCase();
+              targetField.datatype = upperType as SapDataType;
+              if (!rowVals[cOffset + 1] && isValidSapFieldType(upperType)) {
+                targetField.outputlen = defaultLengthForType(upperType as SapDataType);
               }
             }
             break;
@@ -287,9 +334,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
       updated[targetRowIdx] = targetField;
     });
 
-    // Automatically re-index col_pos sequentially from 1 to N
-    const reindexed = updated.map((f, idx) => ({ ...f, col_pos: idx + 1 }));
-    onChange(reindexed);
+    onChange(updated);
 
     setSelectedRange({
       startRow: startR,
@@ -496,6 +541,21 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
     onChange(nextCatalog);
   };
 
+  // Real-time Field Catalog validation layer (SAP field types, column positions, duplicate fieldnames)
+  const validation = useMemo(
+    () => validateFieldCatalog(spec.field_catalog),
+    [spec.field_catalog]
+  );
+
+  // Quick-fix helper: sequentially renumber all COL_POS values 1..N
+  const handleAutoRenumberPos = () => {
+    const renumbered = spec.field_catalog.map((f, idx) => ({
+      ...f,
+      col_pos: idx + 1,
+    }));
+    onChange(renumbered);
+  };
+
   return (
     <div
       tabIndex={0}
@@ -541,13 +601,115 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
           </button>
         </div>
 
-        {/* Right: Column Count */}
+        {/* Right: Validation Status & Column Count */}
         <div className="flex items-center gap-2">
+          {validation.isValid ? (
+            <span
+              className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 font-semibold shadow-2xs"
+              title="All SAP field types and column positions are valid"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Valid</span>
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1 text-xs text-rose-700 bg-rose-50 px-2.5 py-1 rounded border border-rose-300 font-semibold shadow-2xs"
+              title={`${validation.totalIssueCount} validation issue(s) detected in Field Catalog`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+              <span>
+                {validation.totalIssueCount}{' '}
+                {validation.totalIssueCount === 1 ? 'Issue' : 'Issues'}
+              </span>
+            </span>
+          )}
           <span className="font-mono text-xs text-blue-700 bg-white px-2.5 py-1 rounded border border-blue-200 font-semibold shadow-2xs">
             Total {spec.field_catalog.length} Columns
           </span>
         </div>
       </div>
+
+      {/* Real-Time Validation Banner */}
+      {!validation.isValid && (
+        <div
+          role="alert"
+          className="bg-rose-50 border border-rose-300 rounded-lg p-3 text-rose-900 text-xs space-y-2 shadow-2xs"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-bold text-rose-900">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>
+                Field Catalog Validation ({validation.totalIssueCount}{' '}
+                {validation.totalIssueCount === 1 ? 'error' : 'errors'} detected)
+              </span>
+            </div>
+
+            {(validation.duplicateColPosValues.length > 0 ||
+              validation.invalidColPosRows.length > 0) && (
+              <button
+                type="button"
+                onClick={handleAutoRenumberPos}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-rose-800 bg-white hover:bg-rose-100 border border-rose-300 rounded-md shadow-2xs cursor-pointer transition-colors"
+                title="Automatically assign unique sequential COL_POS values (1..N)"
+              >
+                <Wand2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>Auto-Fix POS (1..N)</span>
+              </button>
+            )}
+          </div>
+
+          <ul className="space-y-1 pl-6 list-disc text-[11px] text-rose-800">
+            {validation.invalidTypeRows.length > 0 && (
+              <li>
+                <strong>Invalid SAP Field Type:</strong> Row(s){' '}
+                <span className="font-mono font-bold text-rose-950">
+                  {validation.invalidTypeRows
+                    .map((r) => {
+                      const f = spec.field_catalog[r];
+                      return `#${r + 1} ${f?.fieldname || ''} ('${f?.datatype || 'empty'}')`;
+                    })
+                    .join(', ')}
+                </span>
+                . Allowed SAP DDIC types:{' '}
+                <span className="font-mono text-rose-950">
+                  {VALID_SAP_FIELD_TYPES.join(', ')}
+                </span>
+                .
+              </li>
+            )}
+
+            {validation.duplicateColPosValues.length > 0 && (
+              <li>
+                <strong>Duplicate Column Position (COL_POS):</strong> Position(s){' '}
+                <span className="font-mono font-bold text-rose-950">
+                  {validation.duplicateColPosValues.join(', ')}
+                </span>{' '}
+                assigned to multiple fields. Each column must have a unique position.
+              </li>
+            )}
+
+            {validation.invalidColPosRows.length > 0 && (
+              <li>
+                <strong>Invalid Column Position (COL_POS):</strong> Row(s){' '}
+                <span className="font-mono font-bold text-rose-950">
+                  {validation.invalidColPosRows.map((r) => `#${r + 1}`).join(', ')}
+                </span>{' '}
+                must have a positive integer position (&ge; 1).
+              </li>
+            )}
+
+            {validation.duplicateFieldnames.length > 0 && (
+              <li>
+                <strong>Duplicate Fieldname:</strong>{' '}
+                <span className="font-mono font-bold text-rose-950">
+                  {validation.duplicateFieldnames.join(', ')}
+                </span>
+                .
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
 
       {/* Spreadsheet Grid (LVC_T_FCAT) */}
       <div
@@ -668,12 +830,19 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                   const isDropBottom = isOver && dragPosition === 'bottom';
                   const isZicon = field.fieldname === 'ZICON';
                   const canBeCheckbox = !isZicon && field.datatype === 'CHAR' && field.outputlen === 1;
-                  const isDuplicateFieldname =
-                    !isZicon &&
-                    !!field.fieldname?.trim() &&
-                    spec.field_catalog
-                      .slice(0, idx)
-                      .some((prev) => prev.fieldname?.trim().toUpperCase() === field.fieldname.trim().toUpperCase());
+                  const rowValidation = validation.rowErrors[idx];
+                  const isDuplicateFieldname = !isZicon && !!rowValidation?.duplicateFieldname;
+                  const isColPosError = !!(rowValidation?.duplicateColPos || rowValidation?.invalidColPos);
+                  const isDatatypeError = !isZicon && !!rowValidation?.invalidDatatype;
+                  const rowErrorTooltip = rowValidation?.hasAnyIssue
+                    ? [
+                        rowValidation.colPosMessage,
+                        rowValidation.fieldnameMessage,
+                        rowValidation.datatypeMessage,
+                      ]
+                        .filter(Boolean)
+                        .join(' | ')
+                    : undefined;
                   const colorStyle = !isZicon && field.emphasize ? getSapColorHex(field.emphasize) : null;
 
                   const cellDropClasses = isDropTop
@@ -709,8 +878,13 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                             endCol: FCAT_COL_COUNT - 1,
                           });
                         }}
+                        title={rowErrorTooltip}
                         className={`py-1 px-1 text-center font-mono font-bold text-[10px] border-r border-slate-300 select-none cursor-pointer ${
-                          isSelectedRow ? 'bg-blue-200 text-blue-900' : 'bg-slate-100 text-slate-500'
+                          isSelectedRow
+                            ? 'bg-blue-200 text-blue-900'
+                            : rowValidation?.hasAnyIssue
+                            ? 'bg-rose-100 text-rose-800 border-l-2 border-l-rose-500'
+                            : 'bg-slate-100 text-slate-500'
                         } ${cellDropClasses}`}
                       >
                         {idx + 1}
@@ -730,25 +904,50 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                       </td>
 
                       {/* Col B: Position (col_pos) */}
-                      <td className={`p-0 border-r border-slate-200 text-center font-bold ${cellDropClasses}`}>
-                        <div className="flex items-center justify-center h-8">
-                          <select
-                            value={field.col_pos}
+                      <td
+                        title={isColPosError ? rowValidation?.colPosMessage : 'Column position (COL_POS)'}
+                        className={`p-0 border-r border-slate-200 text-center font-bold ${cellDropClasses} ${
+                          isColPosError ? 'bg-rose-50' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-center gap-0.5 h-8 px-1">
+                          <input
+                            type="number"
+                            min={1}
+                            value={field.col_pos > 0 ? field.col_pos : ''}
+                            disabled={isZicon}
+                            aria-invalid={isColPosError}
+                            aria-label={`Column position for ${field.fieldname || `row ${idx + 1}`}`}
+                            data-fcell={`${idx}-col_pos`}
+                            onKeyDown={(e) => handleCellKeyDown(e, idx, 'col_pos')}
                             onChange={(e) => {
-                              const newPos = parseInt(e.target.value, 10);
-                              if (!isNaN(newPos) && newPos >= 1 && newPos <= spec.field_catalog.length) {
-                                handleReorder(idx, newPos - 1);
+                              const raw = e.target.value.trim();
+                              if (raw === '') {
+                                handleUpdateField(idx, { col_pos: 0 });
+                              } else {
+                                const parsed = parseInt(raw, 10);
+                                handleUpdateField(idx, { col_pos: isNaN(parsed) ? 0 : parsed });
                               }
                             }}
-                            title="Change column position (COL_POS) directly"
-                            className="bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:bg-white focus:border-blue-500 cursor-pointer text-center"
-                          >
-                            {spec.field_catalog.map((_, pIdx) => (
-                              <option key={pIdx + 1} value={pIdx + 1}>
-                                {pIdx + 1}
-                              </option>
-                            ))}
-                          </select>
+                            title={
+                              isColPosError
+                                ? rowValidation?.colPosMessage
+                                : isZicon
+                                ? 'ZICON position is fixed at 1'
+                                : 'Edit column position (COL_POS)'
+                            }
+                            className={`w-11 h-6.5 rounded px-1 text-xs font-mono font-bold text-center focus:outline-none focus:ring-2 ${
+                              isColPosError
+                                ? 'bg-rose-50 text-rose-900 border border-rose-500 ring-1 ring-rose-400 focus:ring-rose-500'
+                                : 'bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 focus:bg-white focus:border-blue-500 focus:ring-blue-500'
+                            } ${isZicon ? 'opacity-80 cursor-not-allowed' : ''}`}
+                          />
+                          {isColPosError && (
+                            <AlertTriangle
+                              className="w-3 h-3 text-rose-600 shrink-0"
+                              aria-hidden="true"
+                            />
+                          )}
                         </div>
                       </td>
 
@@ -756,7 +955,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                       <td
                         onMouseDown={() => handleCellMouseDown(idx, 0)}
                         onMouseEnter={() => handleCellMouseEnter(idx, 0)}
-                        title={isDuplicateFieldname ? 'Duplicate values exist.' : undefined}
+                        title={isDuplicateFieldname ? rowValidation?.fieldnameMessage : undefined}
                         className={`p-0 border-r border-slate-200 ${cellDropClasses} ${
                           isCellInRange(selectedRange, idx, 0)
                             ? 'bg-blue-100 ring-1 ring-blue-500'
@@ -769,8 +968,9 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                           type="text"
                           value={field.fieldname}
                           disabled={isZicon}
+                          aria-invalid={isDuplicateFieldname}
                           data-fcell={`${idx}-fieldname`}
-                          title={isDuplicateFieldname ? 'Duplicate values exist.' : undefined}
+                          title={isDuplicateFieldname ? rowValidation?.fieldnameMessage : undefined}
                           onFocus={() => {
                             if (!selectedRange) {
                               setSelectedRange({ startRow: idx, startCol: 0, endRow: idx, endCol: 0 });
@@ -823,46 +1023,76 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         />
                       </td>
 
-                      {/* Col E: Data Type */}
+                      {/* Col E: Data Type (Context Select Menu matching JUST) */}
                       <td
                         onMouseDown={() => handleCellMouseDown(idx, 2)}
                         onMouseEnter={() => handleCellMouseEnter(idx, 2)}
+                        title={
+                          isDatatypeError
+                            ? rowValidation?.datatypeMessage
+                            : `SAP Field Type (${VALID_SAP_FIELD_TYPES.join(', ')})`
+                        }
                         className={`p-0 border-r border-slate-200 text-center ${cellDropClasses} ${
                           isCellInRange(selectedRange, idx, 2)
                             ? 'bg-blue-100 ring-1 ring-blue-500'
+                            : isDatatypeError
+                            ? 'bg-rose-50'
                             : ''
                         }`}
                       >
-                        <select
-                          value={field.datatype}
-                          disabled={isZicon}
-                          data-fcell={`${idx}-datatype`}
-                          onFocus={() => {
-                            if (!selectedRange) {
-                              setSelectedRange({ startRow: idx, startCol: 2, endRow: idx, endCol: 2 });
+                        <div className="relative flex items-center h-8">
+                          <select
+                            value={(field.datatype || '').toString().trim().toUpperCase()}
+                            disabled={isZicon}
+                            aria-invalid={isDatatypeError}
+                            aria-label={`SAP data type for ${field.fieldname || `row ${idx + 1}`}`}
+                            data-fcell={`${idx}-datatype`}
+                            title={
+                              isDatatypeError
+                                ? rowValidation?.datatypeMessage
+                                : `SAP Field Type (${VALID_SAP_FIELD_TYPES.join(', ')})`
                             }
-                          }}
-                          onKeyDown={(e) => handleCellKeyDown(e, idx, 'datatype')}
-                          onChange={(e) => {
-                            const newType = e.target.value as SapDataType;
-                            handleUpdateField(idx, {
-                              datatype: newType,
-                              ...(newType === 'CHAR' ? { do_sum: false } : {}),
-                            });
-                          }}
-                          className={`w-full h-8 px-1 bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono text-[11px] text-slate-800 text-center cursor-pointer ${
-                            isZicon ? 'opacity-80 bg-slate-50 cursor-not-allowed' : ''
-                          }`}
-                        >
-                          <option value="CHAR">CHAR</option>
-                          <option value="NUMC">NUMC</option>
-                          <option value="DATS">DATS</option>
-                          <option value="TIMS">TIMS</option>
-                          <option value="CURR">CURR</option>
-                          <option value="DEC">DEC</option>
-                          <option value="UNIT">UNIT</option>
-                          <option value="INT4">INT4</option>
-                        </select>
+                            onFocus={() => {
+                              if (!selectedRange) {
+                                setSelectedRange({ startRow: idx, startCol: 2, endRow: idx, endCol: 2 });
+                              }
+                            }}
+                            onKeyDown={(e) => handleCellKeyDown(e, idx, 'datatype')}
+                            onChange={(e) => {
+                              const nextType = e.target.value as SapDataType;
+                              handleUpdateField(idx, {
+                                datatype: nextType,
+                                ...(nextType === 'CHAR' ? { do_sum: false } : {}),
+                              });
+                            }}
+                            className={`w-full h-8 px-1 font-mono text-[11px] font-bold text-center cursor-pointer focus:outline-none ${
+                              isDatatypeError
+                                ? 'bg-rose-50 text-rose-900 border border-rose-500 ring-1 ring-rose-400 focus:bg-white focus:ring-rose-500 pr-4'
+                                : 'bg-transparent text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-600'
+                            } ${isZicon ? 'opacity-80 bg-slate-50 cursor-not-allowed' : ''}`}
+                          >
+                            {!field.datatype && <option value="">--</option>}
+                            {field.datatype &&
+                              !isValidSapFieldType(field.datatype) && (
+                                <option
+                                  value={(field.datatype || '').toString().trim().toUpperCase()}
+                                >
+                                  {(field.datatype || '').toString().trim().toUpperCase()} (!)
+                                </option>
+                              )}
+                            {VALID_SAP_FIELD_TYPES.map((dt) => (
+                              <option key={dt} value={dt}>
+                                {dt}
+                              </option>
+                            ))}
+                          </select>
+                          {isDatatypeError && (
+                            <AlertTriangle
+                              className="w-3 h-3 text-rose-600 absolute right-1 pointer-events-none"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </div>
                       </td>
 
                       {/* Col F: Output length */}
@@ -930,7 +1160,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                         </select>
                       </td>
 
-                      {/* Col H: Color */}
+                      {/* Col H: Color (Context Menu with visual color swatches matching JUST) */}
                       <td
                         onMouseDown={() => handleCellMouseDown(idx, 5)}
                         onMouseEnter={() => handleCellMouseEnter(idx, 5)}
@@ -939,68 +1169,76 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
                             ? { backgroundColor: colorStyle.bg }
                             : undefined
                         }
-                        className={`p-0 border-r border-slate-200 text-center relative group ${cellDropClasses} ${
+                        className={`p-0 border-r border-slate-200 text-center relative ${cellDropClasses} ${
                           isCellInRange(selectedRange, idx, 5)
                             ? 'bg-blue-100 ring-1 ring-blue-500'
                             : ''
                         }`}
                       >
-                        <div className="relative flex items-center justify-between w-full h-8 px-1">
-                          <input
-                            type="text"
-                            value={field.emphasize || ''}
-                            disabled={isZicon}
-                            data-fcell={`${idx}-emphasize`}
-                            style={
-                              colorStyle && colorStyle.text !== 'inherit'
-                                ? { color: colorStyle.text }
-                                : undefined
+                        <button
+                          type="button"
+                          data-color-trigger="true"
+                          disabled={isZicon}
+                          data-fcell={`${idx}-emphasize`}
+                          aria-haspopup="listbox"
+                          aria-expanded={openColorMenu?.rowIndex === idx}
+                          aria-label={`Color for ${field.fieldname || `row ${idx + 1}`}`}
+                          title={isZicon ? 'ZICON color is locked' : 'SAP ALV Color 선택'}
+                          style={
+                            colorStyle && colorStyle.text !== 'inherit'
+                              ? { color: colorStyle.text }
+                              : undefined
+                          }
+                          onFocus={() => {
+                            if (!selectedRange) {
+                              setSelectedRange({ startRow: idx, startCol: 5, endRow: idx, endCol: 5 });
                             }
-                            onFocus={() => {
-                              if (!selectedRange) {
-                                setSelectedRange({ startRow: idx, startCol: 5, endRow: idx, endCol: 5 });
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'F4' && !isZicon) {
-                                e.preventDefault();
-                                setColorHelpTarget({
-                                  index: idx,
-                                  fieldName: field.fieldname,
-                                  currentColor: field.emphasize || '',
-                                });
-                                return;
-                              }
-                              handleCellKeyDown(e, idx, 'emphasize');
-                            }}
-                            onChange={(e) =>
-                              handleUpdateField(idx, {
-                                emphasize: e.target.value.toUpperCase(),
-                              })
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'F4' && !isZicon) {
+                              e.preventDefault();
+                              setOpenColorMenu(null);
+                              setColorHelpTarget({
+                                index: idx,
+                                fieldName: field.fieldname,
+                                currentColor: field.emphasize || '',
+                              });
+                              return;
                             }
-                            placeholder={isZicon ? '' : 'C300'}
-                            className={`w-full h-full bg-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 uppercase text-center font-bold text-[10px] ${
-                              isZicon ? 'opacity-80 bg-slate-50 cursor-not-allowed' : ''
-                            }`}
-                          />
+                            handleCellKeyDown(e, idx, 'emphasize');
+                          }}
+                          onClick={(e) => {
+                            if (isZicon) return;
+                            e.stopPropagation();
+                            if (openColorMenu?.rowIndex === idx) {
+                              setOpenColorMenu(null);
+                              return;
+                            }
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const menuHeight = 288;
+                            const menuWidth = 240;
+                            const spaceBelow = window.innerHeight - rect.bottom;
+                            const openUpward = spaceBelow < menuHeight && rect.top > menuHeight;
+                            const left = Math.max(
+                              8,
+                              Math.min(rect.left, window.innerWidth - menuWidth - 12)
+                            );
+                            const top = openUpward ? rect.top - 4 : rect.bottom + 4;
+                            setOpenColorMenu({ rowIndex: idx, top, left, openUpward });
+                          }}
+                          className={`w-full h-8 px-1.5 flex items-center justify-between gap-0.5 bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono text-[11px] font-bold ${
+                            isZicon
+                              ? 'opacity-80 bg-slate-50 cursor-not-allowed'
+                              : 'cursor-pointer hover:bg-black/5'
+                          }`}
+                        >
+                          <span className="flex-1 text-center truncate">
+                            {isZicon ? '' : field.emphasize || '-'}
+                          </span>
                           {!isZicon && (
-                            <button
-                              type="button"
-                              title="SAP ALV Color Search Help (F4)"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setColorHelpTarget({
-                                  index: idx,
-                                  fieldName: field.fieldname,
-                                  currentColor: field.emphasize || '',
-                                });
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-slate-300/60 rounded text-slate-600 hover:text-blue-700 transition-opacity absolute right-1 shrink-0 cursor-pointer"
-                            >
-                              <Search className="w-2.5 h-2.5" />
-                            </button>
+                            <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
                           )}
-                        </div>
+                        </button>
                       </td>
 
                       {/* Col I: Key */}
@@ -1324,6 +1562,84 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
           }}
         />
       )}
+
+      {/* Floating Color Context Menu Dropdown */}
+      {openColorMenu && (() => {
+        const targetField = spec.field_catalog[openColorMenu.rowIndex];
+        const currentVal = (targetField?.emphasize || '').trim().toUpperCase();
+        return (
+          <div
+            ref={colorMenuRef}
+            role="listbox"
+            aria-label="SAP ALV Color Menu"
+            style={{
+              position: 'fixed',
+              top: openColorMenu.top,
+              left: openColorMenu.left,
+              transform: openColorMenu.openUpward ? 'translateY(-100%)' : undefined,
+            }}
+            className="z-50 w-60 max-h-72 overflow-y-auto bg-white border border-slate-300 rounded-lg shadow-xl py-1 font-sans text-xs"
+          >
+            {/* Clear / None Option */}
+            <button
+              type="button"
+              role="option"
+              aria-selected={!currentVal}
+              onClick={() => {
+                handleUpdateField(openColorMenu.rowIndex, { emphasize: '' });
+                setOpenColorMenu(null);
+              }}
+              className={`w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100 cursor-pointer transition-colors ${
+                !currentVal ? 'bg-blue-50 font-semibold' : ''
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-6 h-4 rounded border border-dashed border-slate-400 bg-white shrink-0 flex items-center justify-center text-[9px] text-slate-400 font-mono">
+                  -
+                </span>
+                <span className="font-mono font-bold text-slate-700">None</span>
+                <span className="text-[11px] text-slate-500 truncate">색상 없음</span>
+              </div>
+              {!currentVal && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+            </button>
+
+            <div className="my-1 border-t border-slate-200" />
+
+            {/* SAP ALV Color Swatches + Text */}
+            {SAP_ALV_COLORS.map((c) => {
+              const isSelected = currentVal === c.code;
+              return (
+                <button
+                  key={c.code}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onClick={() => {
+                    handleUpdateField(openColorMenu.rowIndex, { emphasize: c.code });
+                    setOpenColorMenu(null);
+                  }}
+                  style={{ backgroundColor: c.bgHex, color: c.textHex }}
+                  className={`w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left cursor-pointer transition-opacity hover:opacity-90 border-b border-black/5 last:border-b-0 ${
+                    isSelected ? 'ring-2 ring-inset ring-blue-600 font-bold' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      style={{ backgroundColor: c.bgHex, color: c.textHex }}
+                      className="w-6 h-4 rounded border border-black/20 shrink-0 flex items-center justify-center text-[9px] font-mono font-bold shadow-2xs"
+                    >
+                      Aa
+                    </span>
+                    <span className="font-mono font-bold shrink-0">{c.code}</span>
+                    <span className="text-[11px] opacity-85 truncate">{c.description}</span>
+                  </div>
+                  {isSelected && <Check className="w-3.5 h-3.5 text-blue-700 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -4,11 +4,9 @@ import {
   Sparkles,
   FileCode,
   RotateCcw,
-  Copy,
   Info,
   Maximize2,
   Minimize2,
-  Check,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -60,7 +58,13 @@ export const MermaidDataFlowEditor: React.FC<MermaidDataFlowEditorProps> = ({
   const [selectedNodeId, setSelectedNodeId] = useState<string>(
     config?.active_node_id || 'A'
   );
-  const [copiedNotification, setCopiedNotification] = useState<boolean>(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<keyof typeof MERMAID_TEMPLATES>(
+    spec.sample_type === '02'
+      ? 'sample_02_master_detail'
+      : spec.sample_type === '04'
+      ? 'sample_04_cds_pivot'
+      : 'sample_01_standard'
+  );
 
   // Box Collapse/Expand states (RFQ v1.23: applied to all 3 sections)
   const [isCodeCollapsed, setIsCodeCollapsed] = useState<boolean>(false);
@@ -162,13 +166,6 @@ export const MermaidDataFlowEditor: React.FC<MermaidDataFlowEditorProps> = ({
     handleMermaidCodeChange(updated);
   };
 
-  // Copy Mermaid text to clipboard
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(mermaidText);
-    setCopiedNotification(true);
-    setTimeout(() => setCopiedNotification(false), 2500);
-  };
-
   const currentNodeMarkdown =
     activeNode && nodeDetails[activeNode.id]?.markdown !== undefined
       ? nodeDetails[activeNode.id].markdown
@@ -205,60 +202,30 @@ export const MermaidDataFlowEditor: React.FC<MermaidDataFlowEditorProps> = ({
             </div>
           </div>
 
-          {/* Templates & Action Buttons */}
+          {/* Template Selector List Box & Apply Button */}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs font-semibold text-slate-600 mr-0.5">템플릿:</span>
-            <button
-              type="button"
-              onClick={() => applyTemplate('basic_condition')}
-              className="px-2 py-0.5 text-xs font-medium bg-white hover:bg-blue-50 hover:text-blue-700 border border-slate-300 rounded transition-colors shadow-2xs cursor-pointer"
+            <span className="text-xs font-semibold text-slate-600">템플릿:</span>
+            <select
+              value={selectedTemplate}
+              onChange={(e) =>
+                setSelectedTemplate(e.target.value as keyof typeof MERMAID_TEMPLATES)
+              }
+              aria-label="Flow Chart 템플릿 선택"
+              className="px-2 py-1 text-xs font-medium text-slate-800 bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs"
             >
-              기본 조건 분기
-            </button>
-            <button
-              type="button"
-              onClick={() => applyTemplate('sample_01_standard')}
-              className="px-2 py-0.5 text-xs font-medium bg-white hover:bg-blue-50 hover:text-blue-700 border border-slate-300 rounded transition-colors shadow-2xs cursor-pointer"
-            >
-              Type 01 (10단계)
-            </button>
-            <button
-              type="button"
-              onClick={() => applyTemplate('sample_02_master_detail')}
-              className="px-2 py-0.5 text-xs font-medium bg-white hover:bg-blue-50 hover:text-blue-700 border border-slate-300 rounded transition-colors shadow-2xs cursor-pointer"
-            >
-              Type 02 (헤더/품목)
-            </button>
-            {spec.sample_type === '04' && (
-              <button
-                type="button"
-                onClick={() => applyTemplate('sample_04_cds_pivot')}
-                className="px-2 py-0.5 text-xs font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded transition-colors shadow-2xs cursor-pointer"
-              >
-                Type 04 (CDS피벗)
-              </button>
-            )}
-
-            <div className="h-3.5 w-px bg-slate-300 mx-0.5" />
-
-            {/* Copy Code */}
-            <button
-              type="button"
-              onClick={handleCopyCode}
-              className="px-2 py-0.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 rounded flex items-center gap-1 transition-colors shadow-2xs cursor-pointer"
-              title="Mermaid 코드 클립보드 복사"
-            >
-              {copiedNotification ? (
-                <>
-                  <Check className="w-3 h-3 text-emerald-600" />
-                  <span className="text-emerald-700 font-semibold">복사됨!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3 h-3" />
-                  <span>코드 복사</span>
-                </>
+              <option value="basic_condition">기본 조건 분기</option>
+              <option value="sample_01_standard">Type 01 (10단계)</option>
+              <option value="sample_02_master_detail">Type 02 (헤더/품목)</option>
+              {spec.sample_type === '04' && (
+                <option value="sample_04_cds_pivot">Type 04 (CDS피벗)</option>
               )}
+            </select>
+            <button
+              type="button"
+              onClick={() => applyTemplate(selectedTemplate)}
+              className="px-2.5 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shadow-2xs cursor-pointer"
+            >
+              적용하기
             </button>
           </div>
         </div>
@@ -364,10 +331,10 @@ export const MermaidDataFlowEditor: React.FC<MermaidDataFlowEditorProps> = ({
                 setIsFullscreen(true);
               }}
               className="px-2 py-0.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-300 rounded flex items-center gap-1 transition-colors shadow-2xs cursor-pointer"
-              title="Flow Chart 전체 화면 보기"
+              title="Flow Chart Full Screen"
             >
               <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
-              <span>전체 화면</span>
+              <span>Full Screen</span>
             </button>
           </div>
         </div>
@@ -411,9 +378,6 @@ export const MermaidDataFlowEditor: React.FC<MermaidDataFlowEditorProps> = ({
                 <h4 className="text-xs font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
                   노드 [{activeNode?.id || 'A'}] 상세 사양서
                 </h4>
-                <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded border border-blue-200">
-                  마크다운
-                </span>
               </div>
               <p className="text-[11px] text-slate-600 font-medium truncate max-w-[220px]">
                 {activeNode?.label || '선택된 단계'}
@@ -460,6 +424,28 @@ export const MermaidDataFlowEditor: React.FC<MermaidDataFlowEditorProps> = ({
                   rows={12}
                   minHeight="320px"
                   placeholder={`노드 [${activeNode.id}] ${activeNode.label}의 비즈니스 로직, 사용 테이블, 예외 처리 규칙을 마크다운(# 제목, - 목록, **굵게**, \`코드\`)으로 상세히 작성하세요...`}
+                  aiContext={{
+                    section: 'data_flow_node',
+                    sectionTitle: `노드 [${activeNode.id}] ${activeNode.label}`,
+                    spec,
+                    nodeInfo: {
+                      id: activeNode.id,
+                      label: activeNode.label,
+                      shape: activeNode.shape,
+                      prevNodes: parsed.edges
+                        .filter((e) => e.to === activeNode.id)
+                        .map((e) => {
+                          const src = layoutedNodes.find((n) => n.id === e.from);
+                          return `${e.from}: ${src?.label || e.from}${e.label ? ` (${e.label})` : ''}`;
+                        }),
+                      nextNodes: parsed.edges
+                        .filter((e) => e.from === activeNode.id)
+                        .map((e) => {
+                          const dst = layoutedNodes.find((n) => n.id === e.to);
+                          return `${e.to}: ${dst?.label || e.to}${e.label ? ` (${e.label})` : ''}`;
+                        }),
+                    },
+                  }}
                 />
               ) : (
                 <div className="text-center py-12 text-slate-400 text-xs">

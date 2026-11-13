@@ -94,7 +94,7 @@ ${business_purpose}
 위 내용을 기반으로 SAP ALV 사양서의 [데이터 추출 및 가공 로직]을 완성도 높게 제안해주세요.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
@@ -136,7 +136,7 @@ Rules:
 Provide the complete DDIC schema metadata and field catalog for SAP table ${cleanTableName}.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
@@ -245,7 +245,7 @@ ${JSON.stringify(fieldDescriptions, null, 2)}
 Generate ${Math.min(Math.max(Number(count) || 5, 3), 10)} realistic SAP records as a JSON array.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
@@ -277,6 +277,115 @@ Generate ${Math.min(Math.max(Number(count) || 5, 3), 10)} realistic SAP records 
     console.warn('Gemini API temporary issue, using intelligent SAP fallback generator:', error?.message);
     const fallbackRows = generateFallbackSapRows(req.body?.field_catalog || [], Number(req.body?.count) || 5);
     return res.json({ rows: fallbackRows, fallback: true });
+  }
+});
+
+// API endpoint: Context-aware Markdown content suggestion tailored to section & screen config
+app.post('/api/suggest-markdown', async (req, res) => {
+  try {
+    const {
+      section,
+      sectionTitle,
+      programInfo,
+      selectionParams = [],
+      fieldCatalog = [],
+      itemFieldCatalog = [],
+      layout = {},
+      customToolbar = [],
+      nodeInfo,
+      currentValue = '',
+    } = req.body || {};
+
+    if (!section) {
+      return res.status(400).json({ error: '마크다운 섹션 위치 정보가 필요합니다.' });
+    }
+
+    const sectionRoleGuide =
+      section === 'business_purpose'
+        ? `작성 위치: [Business Purpose (업무 목적 및 개발 개요)]
+- 이 프로그램의 비즈니스 배경, 개발 목적, 주요 대상 사용자, 화면 구성(Sample Type) 및 기대 효과를 명확하고 간결한 마크다운(#/## 제목, - 목록, **굵게**)으로 작성하세요.
+- 선택화면 조회 조건과 ALV 출력 그리드/툴바/드릴다운 구성 요소를 자연스럽게 반영하세요.`
+        : section === 'data_extraction_logic'
+        ? `작성 위치: [Data Extraction & Logic (데이터 추출 및 가공 로직)]
+- 다음 4가지를 실무적으로 구체화하여 마크다운으로 작성하세요:
+  1. 주요 대상 테이블 및 선택화면 조회 조건 (실제 파라미터명과 참조 테이블/필드 반영)
+  2. 테이블 조인 및 데이터 추출/동기화 로직 (Master-Detail이면 헤더-품목 연동, Tree면 계층 구조, Pivot이면 CDS View/집계 반영)
+  3. 상태/신호등 및 예외 판정 로직
+  4. ALV 그리드 가공(합계/정렬/색상/핫스팟/편집/커스텀 툴바 이벤트) 로직`
+        : `작성 위치: [Data Flow 노드 상세 사양서]
+- 선택된 Flow Chart 노드(${nodeInfo?.id || ''}: ${nodeInfo?.label || ''}, 형태: ${nodeInfo?.shape || 'rect'})의 역할에 딱 맞는 기술 사양서를 마크다운으로 작성하세요.
+- 선행 노드(${(nodeInfo?.prevNodes || []).join(', ') || '시작'})에서 넘어오는 데이터와 후속 노드(${(nodeInfo?.nextNodes || []).join(', ') || '종료'})로 전달할 처리 결과를 반영하고, 프로그램의 실제 선택조건/필드카탈로그/테이블명을 인용하세요.`;
+
+    const systemPrompt = `당신은 20년 경력의 SAP ERP ABAP 시니어 테크니컬 아키텍트입니다.
+사용자가 현재 작성 중인 마크다운 편집기의 [위치]와 [전체 화면 구성(선택화면 파라미터, ALV 필드 카탈로그, 레이아웃, 툴바 버튼, 플로우차트 노드 연결)]을 종합적으로 분석해, 바로 사양서에 적용할 수 있는 최적의 마크다운 본문을 한국어로 제안하세요.
+규칙:
+- 불필요한 인사말/서론 없이 순수 마크다운 본문만 반환하세요.
+- 화면에 실제로 정의된 파라미터명, 테이블명(REF_TABLE), 필드명(FIELDNAME), 툴바 기능, T-Code를 적극 반영하세요.
+- 간결하고 가독성 좋은 마크다운(### 제목, - 목록, **강조**, \`코드\`)을 사용하세요.`;
+
+    const screenContextSummary = {
+      programInfo,
+      selectionParams: selectionParams.slice(0, 15).map((p: any) => ({
+        kind: p.kind,
+        name: p.name,
+        text: p.text,
+        ref: p.ref_table ? `${p.ref_table}-${p.ref_field}` : p.datatype,
+        obligatory: p.obligatory,
+      })),
+      headerFields: fieldCatalog.slice(0, 20).map((f: any) => ({
+        fieldname: f.fieldname,
+        coltext: f.coltext,
+        datatype: f.datatype,
+        ref: f.ref_table ? `${f.ref_table}-${f.ref_field}` : '',
+        key: f.key,
+        hotspot: f.hotspot,
+        edit: f.edit,
+        do_sum: f.do_sum,
+        drilldown_tcode: f.drilldown_tcode,
+      })),
+      itemFields: itemFieldCatalog.slice(0, 15).map((f: any) => ({
+        fieldname: f.fieldname,
+        coltext: f.coltext,
+        datatype: f.datatype,
+        ref: f.ref_table ? `${f.ref_table}-${f.ref_field}` : '',
+      })),
+      layout,
+      customToolbar: customToolbar
+        .filter((b: any) => b.visible !== false)
+        .map((b: any) => ({
+          function: b.function,
+          text: b.text,
+          quickinfo: b.quickinfo,
+        })),
+      nodeInfo,
+    };
+
+    const userPrompt = `${sectionRoleGuide}
+
+[섹션 제목]: ${sectionTitle || section}
+[현재 화면 및 프로그램 구성(JSON)]:
+${JSON.stringify(screenContextSummary, null, 2)}
+
+[기존 작성 내용 참고(비어있으면 새로 작성, 내용이 있으면 화면 구성을 반영하여 보완)]:
+${currentValue ? currentValue.slice(0, 1200) : '(비어 있음)'}
+
+위 화면 구성과 마크다운 위치에 가장 적합한 최적의 사양서 내용을 마크다운으로 작성해 주세요.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: userPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+      },
+    });
+
+    const suggested = (response.text || '').trim();
+    return res.json({ markdown: suggested });
+  } catch (error: any) {
+    console.error('Markdown suggestion error:', error);
+    return res.status(500).json({
+      error: error?.message || 'AI 마크다운 제안 중 오류가 발생했습니다.',
+    });
   }
 });
 

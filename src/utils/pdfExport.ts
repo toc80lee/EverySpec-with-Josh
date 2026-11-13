@@ -280,20 +280,24 @@ export async function generateVectorPdf(
   doc.text('4. Selection Screen Specification (Dynpro 1000)', margin, currentY);
 
   const selectionRows = spec.selection_params.map((p) => [
+    p.block_title || '-',
     p.kind,
     p.name,
     p.text,
     `${p.datatype}(${p.length})`,
     p.obligatory ? 'Y' : 'N',
     p.default_val || '-',
-    p.ref_table && p.ref_field ? `${p.ref_table}-${p.ref_field}` : '-',
-    p.memory_id || '-',
+    p.kind === 'RADIOBUTTON' && p.radio_group
+      ? `GROUP ${p.radio_group}`
+      : p.ref_table && p.ref_field
+      ? `${p.ref_table}-${p.ref_field}`
+      : '-',
   ]);
 
   autoTable(doc, {
     startY: currentY + 3,
-    head: [['Kind', 'Parameter', 'Label / Description', 'Type(Len)', 'Req', 'Default', 'Ref Field', 'Memory ID']],
-    body: selectionRows.length > 0 ? selectionRows : [['PARAM', 'P_NONE', 'None defined', 'CHAR(4)', 'N', '-', '-', '-']],
+    head: [['Box Title', 'Kind', 'Parameter', 'Label / Description', 'Type(Len)', 'Req', 'Default', 'Ref / Group']],
+    body: selectionRows.length > 0 ? selectionRows : [['-', 'PARAM', 'P_NONE', 'None defined', 'CHAR(4)', 'N', '-', '-']],
     theme: 'striped',
     headStyles: {
       fillColor: [30, 58, 138],
@@ -666,13 +670,14 @@ ${spec.business_purpose || '(업무 목적 미입력)'}
         <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; border: 1px solid #cbd5e1; text-align: left;">
           <thead style="background-color: #f1f5f9; font-weight: bold; color: #334155;">
             <tr>
+              <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">박스 (Box Title)</th>
               <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">구분 (Kind)</th>
               <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">필드명 (Name)</th>
               <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">화면 텍스트 (Text)</th>
               <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">유형 (Type)</th>
               <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">길이</th>
               <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">필수</th>
-              <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">기본값</th>
+              <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">기본값 / 그룹</th>
             </tr>
           </thead>
           <tbody>
@@ -680,13 +685,14 @@ ${spec.business_purpose || '(업무 목적 미입력)'}
               .map(
                 (p) => `
               <tr>
+                <td style="padding: 4px 8px; border: 1px solid #cbd5e1;">${p.block_title || '-'}</td>
                 <td style="padding: 4px 8px; border: 1px solid #cbd5e1; font-family: monospace;">${p.kind}</td>
                 <td style="padding: 4px 8px; border: 1px solid #cbd5e1; font-family: monospace; font-weight: bold; color: #1e3a8a;">${p.name}</td>
                 <td style="padding: 4px 8px; border: 1px solid #cbd5e1;">${p.text}</td>
                 <td style="padding: 4px 8px; border: 1px solid #cbd5e1; font-family: monospace;">${p.datatype}</td>
                 <td style="padding: 4px 8px; border: 1px solid #cbd5e1; text-align: center;">${p.length}</td>
                 <td style="padding: 4px 8px; border: 1px solid #cbd5e1; text-align: center; color: ${p.obligatory ? '#e11d48' : '#64748b'}; font-weight: ${p.obligatory ? 'bold' : 'normal'};">${p.obligatory ? 'X' : ''}</td>
-                <td style="padding: 4px 8px; border: 1px solid #cbd5e1; font-family: monospace;">${p.default_val || '-'}</td>
+                <td style="padding: 4px 8px; border: 1px solid #cbd5e1; font-family: monospace;">${p.default_val || '-'}${p.kind === 'RADIOBUTTON' && p.radio_group ? ` (GRP:${p.radio_group})` : ''}</td>
               </tr>
             `
               )

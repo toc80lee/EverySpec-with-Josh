@@ -870,45 +870,74 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
                   <table className="w-full text-xs text-left border-collapse">
                     <thead className="bg-[#e4edf7] border-b border-slate-300 text-slate-800 font-semibold text-[11px]">
                       <tr>
-                        <th className="p-2 border-r border-slate-300 w-24">구분</th>
-                        <th className="p-2 border-r border-slate-300 w-28">변수명</th>
+                        <th className="p-2 border-r border-slate-300 w-32">박스 (Block)</th>
+                        <th className="p-2 border-r border-slate-300 w-28">구분</th>
+                        <th className="p-2 border-r border-slate-300 w-24">변수명</th>
                         <th className="p-2 border-r border-slate-300">선택 화면 텍스트</th>
                         <th className="p-2 border-r border-slate-300 w-24 text-center">타입/길이</th>
-                        <th className="p-2 border-r border-slate-300 w-28">참조 테이블/필드</th>
-                        <th className="p-2 border-r border-slate-300 w-16 text-center">필수</th>
-                        <th className="p-2 w-24">기본값</th>
+                        <th className="p-2 border-r border-slate-300 w-28">참조 / 그룹</th>
+                        <th className="p-2 border-r border-slate-300 w-14 text-center">필수</th>
+                        <th className="p-2 w-20">기본값</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
-                      {spec.selection_params.map((p) => (
-                        <tr key={p.id} className="hover:bg-slate-50">
-                          <td className="p-2 border-r border-slate-200 font-sans font-medium text-slate-600">
-                            {p.kind === 'PARAMETER' ? 'PARAMETERS' : 'SELECT-OPTIONS'}
-                          </td>
-                          <td className="p-2 border-r border-slate-200 font-bold text-blue-900">
-                            {p.name}
-                          </td>
-                          <td className="p-2 border-r border-slate-200 font-sans text-slate-800">
-                            {p.text}
-                          </td>
-                          <td className="p-2 border-r border-slate-200 text-center text-slate-700">
-                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[10px]">
-                              {p.datatype || 'CHAR'}({p.length || 10})
-                            </span>
-                          </td>
-                          <td className="p-2 border-r border-slate-200 text-slate-600">
-                            {p.ref_table ? `${p.ref_table}-${p.ref_field}` : '-'}
-                          </td>
-                          <td className="p-2 border-r border-slate-200 text-center font-bold">
-                            {p.obligatory ? (
-                              <span className="text-red-600">Y</span>
-                            ) : (
-                              <span className="text-slate-400">N</span>
-                            )}
-                          </td>
-                          <td className="p-2 text-slate-700">{p.default_val || '-'}</td>
-                        </tr>
-                      ))}
+                      {spec.selection_params.map((p) => {
+                        const kindLabel =
+                          p.kind === 'SELECT_OPTION'
+                            ? 'SELECT-OPTIONS'
+                            : p.kind === 'RADIOBUTTON'
+                            ? 'RADIOBUTTON'
+                            : p.kind === 'CHECKBOX'
+                            ? 'CHECKBOX'
+                            : 'PARAMETERS';
+                        return (
+                          <tr key={p.id} className="hover:bg-slate-50">
+                            <td className="p-2 border-r border-slate-200 font-sans text-[11px] text-slate-700">
+                              {p.block_title ? (
+                                <span className="font-semibold text-slate-800">
+                                  {p.block_title}
+                                  {p.block_id ? (
+                                    <span className="ml-1 font-mono text-[10px] text-slate-400">
+                                      ({p.block_id})
+                                    </span>
+                                  ) : null}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 font-sans font-medium text-slate-600">
+                              {kindLabel}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 font-bold text-blue-900">
+                              {p.name}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 font-sans text-slate-800">
+                              {p.text}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 text-center text-slate-700">
+                              <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[10px]">
+                                {p.datatype || 'CHAR'}({p.length || 10})
+                              </span>
+                            </td>
+                            <td className="p-2 border-r border-slate-200 text-slate-600">
+                              {p.kind === 'RADIOBUTTON' && p.radio_group
+                                ? `GROUP ${p.radio_group}`
+                                : p.ref_table
+                                ? `${p.ref_table}-${p.ref_field}`
+                                : '-'}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 text-center font-bold">
+                              {p.obligatory ? (
+                                <span className="text-red-600">Y</span>
+                              ) : (
+                                <span className="text-slate-400">N</span>
+                              )}
+                            </td>
+                            <td className="p-2 text-slate-700">{p.default_val || '-'}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1307,9 +1336,6 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
                               >
                                 <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                                   <div className="flex items-center gap-2">
-                                    <span className="px-1.5 py-0.5 rounded bg-blue-700 text-white font-mono font-bold text-[10px]">
-                                      단계 [{node.id}]
-                                    </span>
                                     <span className="font-bold text-xs text-slate-900">
                                       {label}
                                     </span>

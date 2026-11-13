@@ -21,9 +21,9 @@ ${spec.business_purpose}
 ---
 
 ## 3. 선택 화면 (Selection Screen) 명세
-| 구분 | 파라미터명 | 파라미터 설명 | 참조테이블-필드 | 타입(길이) | 필수여부 | 기본값 | 메모리ID |
-|:---|:---|:---|:---|:---|:---:|:---|:---|
-${spec.selection_params.map(p => `| ${p.kind === 'PARAMETER' ? 'PARAMETER' : 'SELECT-OPTIONS'} | \`${p.name}\` | ${p.text} | ${p.ref_table ? `\`${p.ref_table}-${p.ref_field}\`` : '-'} | ${p.datatype}(${p.length}) | ${p.obligatory ? 'Y' : 'N'} | ${p.default_val || '-'} | ${p.memory_id || '-'} |`).join('\n')}
+| 박스 타이틀 | 구분 | 파라미터명 | 파라미터 설명 | 참조 / 라디오 그룹 | 타입(길이) | 필수여부 | 기본값 | 메모리ID |
+|:---|:---|:---|:---|:---|:---|:---:|:---|:---|
+${spec.selection_params.map(p => `| ${p.block_title || '-'} | ${p.kind === 'SELECT_OPTION' ? 'SELECT-OPTIONS' : p.kind === 'RADIOBUTTON' ? 'RADIOBUTTON' : p.kind === 'CHECKBOX' ? 'CHECKBOX' : 'PARAMETER'} | \`${p.name}\` | ${p.text} | ${p.kind === 'RADIOBUTTON' && p.radio_group ? `\`GROUP ${p.radio_group}\`` : p.ref_table ? `\`${p.ref_table}-${p.ref_field}\`` : '-'} | ${p.datatype}(${p.length}) | ${p.obligatory ? 'Y' : 'N'} | ${p.default_val || '-'} | ${p.memory_id || '-'} |`).join('\n')}
 
 ---
 

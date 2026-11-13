@@ -113,6 +113,8 @@ export function parseSelectionParamsFromTsv(rawText: string, existingLength = 0)
     let ref_field = '';
     let obligatory = false;
     let default_val = '';
+    let block_title = '';
+    let radio_group = '';
 
     // Check if column 0 is Kind or Name
     const cell0 = (cells[0] || '').trim();
@@ -121,22 +123,43 @@ export function parseSelectionParamsFromTsv(rawText: string, existingLength = 0)
     if (
       cell0Upper === 'PARAM' ||
       cell0Upper === 'PARAMETER' ||
+      cell0Upper === 'PARAMETERS' ||
       cell0Upper === 'P' ||
       cell0Upper === 'S-OPT' ||
       cell0Upper === 'SELECT_OPTION' ||
       cell0Upper === 'SELECT-OPTION' ||
-      cell0Upper === 'S'
+      cell0Upper === 'SELECT-OPTIONS' ||
+      cell0Upper === 'S' ||
+      cell0Upper === 'RADIO' ||
+      cell0Upper === 'RADIOBUTTON' ||
+      cell0Upper === 'R' ||
+      cell0Upper === 'CHK' ||
+      cell0Upper === 'CHECKBOX' ||
+      cell0Upper === 'C'
     ) {
-      // Standard 9-column format
-      kind = cell0Upper.startsWith('S') ? 'SELECT_OPTION' : 'PARAMETER';
+      // Standard format
+      if (cell0Upper.startsWith('R')) {
+        kind = 'RADIOBUTTON';
+      } else if (cell0Upper === 'CHK' || cell0Upper === 'CHECKBOX' || cell0Upper === 'C') {
+        kind = 'CHECKBOX';
+      } else if (cell0Upper.startsWith('S')) {
+        kind = 'SELECT_OPTION';
+      } else {
+        kind = 'PARAMETER';
+      }
       name = (cells[1] || '').trim().toUpperCase();
       text = (cells[2] || '').trim();
-      datatype = normalizeDataType(cells[3]);
-      length = parseInt(cells[4], 10) || defaultLengthForType(datatype);
+      datatype = kind === 'RADIOBUTTON' || kind === 'CHECKBOX' ? 'CHAR' : normalizeDataType(cells[3]);
+      length =
+        kind === 'RADIOBUTTON' || kind === 'CHECKBOX'
+          ? 1
+          : parseInt(cells[4], 10) || defaultLengthForType(datatype);
       ref_table = (cells[5] || '').trim().toUpperCase();
       ref_field = (cells[6] || '').trim().toUpperCase();
-      obligatory = isTruthy(cells[7]);
+      obligatory = kind === 'RADIOBUTTON' || kind === 'CHECKBOX' ? false : isTruthy(cells[7]);
       default_val = (cells[8] || '').trim();
+      block_title = (cells[9] || '').trim();
+      radio_group = (cells[10] || '').trim().toUpperCase().slice(0, 4);
     } else {
       // User pasted starting from Name (cell0 is name)
       name = cell0.toUpperCase();
@@ -148,15 +171,25 @@ export function parseSelectionParamsFromTsv(rawText: string, existingLength = 0)
       ref_field = (cells[5] || '').trim().toUpperCase();
       obligatory = isTruthy(cells[6]);
       default_val = (cells[7] || '').trim();
+      block_title = (cells[8] || '').trim();
+      radio_group = (cells[9] || '').trim().toUpperCase().slice(0, 4);
     }
 
     if (!name) {
       const curNum = existingLength + results.length + 1;
-      name = kind === 'PARAMETER' ? `P_FLD${curNum}` : `S_FLD${curNum}`;
+      name = kind === 'SELECT_OPTION' ? `S_FLD${curNum}` : `P_FLD${curNum}`;
     }
     if (!text) {
       text = name;
     }
+
+    const normalizedBlockId = block_title
+      ? `b_${block_title
+          .toLowerCase()
+          .replace(/[^a-z0-9가-힣]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .slice(0, 12) || idx + 1}`
+      : undefined;
 
     results.push({
       id: `param-paste-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
@@ -169,6 +202,9 @@ export function parseSelectionParamsFromTsv(rawText: string, existingLength = 0)
       ref_field,
       obligatory,
       default_val,
+      block_title: block_title || undefined,
+      block_id: normalizedBlockId,
+      radio_group: kind === 'RADIOBUTTON' ? radio_group || 'R1' : undefined,
       low: '',
       high: '',
       sign: 'I',
@@ -180,10 +216,30 @@ export function parseSelectionParamsFromTsv(rawText: string, existingLength = 0)
 }
 
 export function exportSelectionParamsToTsv(params: SelectionParameter[]): string {
-  const header = ['KIND', 'NAME', 'SCREEN TEXT', 'TYPE', 'LENGTH', 'REF TABLE', 'REF FIELD', 'OBLIGATORY', 'DEFAULT VALUE'].join('\t');
+  const header = [
+    'KIND',
+    'NAME',
+    'SCREEN TEXT',
+    'TYPE',
+    'LENGTH',
+    'REF TABLE',
+    'REF FIELD',
+    'OBLIGATORY',
+    'DEFAULT VALUE',
+    'BOX TITLE',
+    'RADIO GROUP',
+  ].join('\t');
   const rows = params.map((p) => {
+    const kindLabel =
+      p.kind === 'SELECT_OPTION'
+        ? 'S-OPT'
+        : p.kind === 'RADIOBUTTON'
+        ? 'RADIO'
+        : p.kind === 'CHECKBOX'
+        ? 'CHK'
+        : 'PARAM';
     return [
-      p.kind === 'PARAMETER' ? 'PARAM' : 'S-OPT',
+      kindLabel,
       p.name,
       p.text,
       p.datatype,
@@ -192,6 +248,8 @@ export function exportSelectionParamsToTsv(params: SelectionParameter[]): string
       p.ref_field || '',
       p.obligatory ? 'X' : '',
       p.default_val || '',
+      p.block_title || '',
+      p.kind === 'RADIOBUTTON' ? p.radio_group || '' : '',
     ].join('\t');
   });
   return [header, ...rows].join('\n');

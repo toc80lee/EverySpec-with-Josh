@@ -604,57 +604,81 @@ export function layoutMermaidDiagram(
     .map(Number)
     .sort((a, b) => a - b);
 
-  // Compact dimensions per RFQ v1.24:
-  // - Fixed layerStepY ensures every vertical gap between consecutive steps is identical and uniform
-  // - Reduced node height and vertical pitch minimizes total flowchart height
+  // Compact dimensions per RFQ v1.24 + event-label 1.5x vertical spacing per RFQ v1.25
   const isTD = direction === 'TD';
   const nodeW = 160;
-  const standardNodeH = 38; // Compact node height (reduced from 46)
+  const standardNodeH = 38; // Compact node height
   const gapX = 32; // Horizontal gap between sibling nodes
-  const layerStepY = 70; // Uniform vertical pitch between layers (reduced from 102)
+  const layerStepY = 70; // Standard uniform vertical pitch between layers
+  const labeledLayerStepY = Math.round(layerStepY * 1.5); // 1.5x vertical pitch when arrows carry event text
   const topPadding = 24;
   const sidePadding = 75; // Margin for side-loop curves
 
+  const getNodeDimensions = (node: ParsedMermaidNode): { w: number; h: number } => {
+    if (node.shape === 'diamond') {
+      return { w: 160, h: 44 };
+    }
+    if (node.shape === 'cylinder') {
+      return { w: 160, h: 42 };
+    }
+    if (node.shape === 'stadium' || node.shape === 'circle') {
+      return { w: 164, h: 36 };
+    }
+    return { w: nodeW, h: standardNodeH };
+  };
+
   let maxLayerBreadth = 0;
   layerIndices.forEach((l) => {
-    const count = layersMap[l].length;
-    if (count > maxLayerBreadth) maxLayerBreadth = count;
+    const lNodes = layersMap[l];
+    const totalW =
+      lNodes.reduce((sum, n) => sum + getNodeDimensions(n).w, 0) +
+      Math.max(0, lNodes.length - 1) * gapX;
+    if (totalW > maxLayerBreadth) maxLayerBreadth = totalW;
   });
 
-  const totalCanvasWidth = Math.max(
-    660,
-    maxLayerBreadth * (nodeW + gapX) + sidePadding * 2
-  );
+  const totalCanvasWidth = Math.max(660, maxLayerBreadth + sidePadding * 2);
+
+  // Compute cumulative Y centers for each layer:
+  // If any forward edge spanning between layer[idx] and layer[idx + 1] has label text,
+  // increase the vertical step to 1.5x for comfortable breathing room.
+  const layerCenterYMap: Record<number, number> = {};
+  layerIndices.forEach((layerIndex, i) => {
+    if (i === 0) {
+      layerCenterYMap[layerIndex] = topPadding;
+      return;
+    }
+    const prevLayerIndex = layerIndices[i - 1];
+    const hasLabeledForwardEdge = forwardEdges.some((e) => {
+      if (!e.label || !e.label.trim()) return false;
+      const fromLayer = nodeLayers[e.from];
+      const toLayer = nodeLayers[e.to];
+      return fromLayer <= prevLayerIndex && toLayer >= layerIndex;
+    });
+    const step = hasLabeledForwardEdge ? labeledLayerStepY : layerStepY;
+    layerCenterYMap[layerIndex] = layerCenterYMap[prevLayerIndex] + step;
+  });
 
   const layouted: LayoutedNode[] = [];
 
   layerIndices.forEach((layerIndex) => {
     const layerNodes = layersMap[layerIndex];
-    const layerBreadth = layerNodes.length * nodeW + (layerNodes.length - 1) * gapX;
-    const startX = (totalCanvasWidth - layerBreadth) / 2;
-    const layerCenterY = topPadding + layerIndex * layerStepY;
+    const dims = layerNodes.map((n) => getNodeDimensions(n));
+    const layerBreadth =
+      dims.reduce((sum, d) => sum + d.w, 0) + Math.max(0, layerNodes.length - 1) * gapX;
+    let cursorX = (totalCanvasWidth - layerBreadth) / 2;
+    const layerCenterY = layerCenterYMap[layerIndex] ?? topPadding;
 
     layerNodes.forEach((node, idx) => {
-      let w = nodeW;
-      let h = standardNodeH;
-
-      if (node.shape === 'diamond') {
-        w = 160;
-        h = 44; // Compact diamond height
-      } else if (node.shape === 'cylinder') {
-        w = 160;
-        h = 42; // Compact cylinder height
-      } else if (node.shape === 'stadium' || node.shape === 'circle') {
-        w = 165;
-        h = 36; // Compact capsule/stadium height
-      }
+      const { w, h } = dims[idx];
 
       const x = isTD
-        ? Math.round(startX + idx * (nodeW + gapX))
+        ? Math.round(cursorX)
         : Math.round(sidePadding + layerIndex * (nodeW + gapX));
       const y = isTD
         ? Math.round(layerCenterY - h / 2)
         : Math.round(topPadding + idx * (standardNodeH + 20));
+
+      cursorX += w + gapX;
 
       layouted.push({
         ...node,

@@ -287,7 +287,6 @@ DATA: gt_0100 LIKE TABLE OF gs_0100.${item0110Section}
  * dynamically linking with the Selection Parameters defined in the specification.
  */
 export function generateDefaultS01Source(spec: Partial<ProgramSpec>): string {
-  const progIdLower = (spec.program_id || 'ZRALV0010').toLowerCase();
   const params = spec.selection_params || [];
 
   if (params.length === 0) {
@@ -297,84 +296,125 @@ export function generateDefaultS01Source(spec: Partial<ProgramSpec>): string {
 *----------------------------------------------------------------------*
 * SELECTION-SCREEN                                                     *
 *----------------------------------------------------------------------*
-SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-t01.
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
 * (Selection Screen에 등록된 파라미터가 없습니다)
 SELECTION-SCREEN END OF BLOCK b1.
 `;
   }
 
-  // Group parameters by block_id / block_title if available, or default b1
-  const blockMap = new Map<string, { title: string; items: typeof params }>();
+  type BlockGroup = {
+    isBox: boolean;
+    blockId: string;
+    title: string;
+    items: typeof params;
+  };
 
-  params.forEach((p, idx) => {
-    const blockKey = p.block_id || 'b1';
-    const blockTitle = p.block_title || '기본 조회 조건 (Selection Criteria)';
-    if (!blockMap.has(blockKey)) {
-      blockMap.set(blockKey, { title: blockTitle, items: [] });
+  const groups: BlockGroup[] = [];
+  const boxMap = new Map<string, BlockGroup>();
+
+  params.forEach((p) => {
+    const rawId = p.block_id?.trim();
+    const rawTitle = p.block_title?.trim();
+    if (rawId || rawTitle) {
+      const key = rawId || `box_${rawTitle}`;
+      if (!boxMap.has(key)) {
+        const grp: BlockGroup = {
+          isBox: true,
+          blockId: (rawId || `b${boxMap.size + 1}`).toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 8) || `b${boxMap.size + 1}`,
+          title: rawTitle || rawId || '조회 조건',
+          items: [],
+        };
+        boxMap.set(key, grp);
+        groups.push(grp);
+      }
+      boxMap.get(key)!.items.push(p);
+    } else {
+      const last = groups[groups.length - 1];
+      if (last && !last.isBox) {
+        last.items.push(p);
+      } else {
+        groups.push({
+          isBox: false,
+          blockId: '',
+          title: '',
+          items: [p],
+        });
+      }
     }
-    blockMap.get(blockKey)!.items.push(p);
   });
 
   const blockCodeSections: string[] = [];
+  const textSymbolLines: string[] = [];
   let blockIdx = 1;
 
-  blockMap.forEach((block, key) => {
-    const bId = key || `b${blockIdx}`;
-    const lines: string[] = [];
-    lines.push(`SELECTION-SCREEN BEGIN OF BLOCK ${bId} WITH FRAME TITLE TEXT-${String(blockIdx).padStart(3, '0')}. " ${block.title}`);
+  const formatParamLine = (p: (typeof params)[number], indent: string): string => {
+    const pName = p.name.toLowerCase();
+    const obligStr = p.obligatory ? ' OBLIGATORY' : '';
+    const defVal = p.default_val ? ` DEFAULT '${p.default_val}'` : '';
+    const memIdStr = p.memory_id ? ` MEMORY ID ${p.memory_id.toUpperCase()}` : '';
 
-    // Track TABLES for select-options
-    const neededTables = new Set<string>();
-
-    block.items.forEach((p) => {
-      const pName = p.name.toLowerCase();
-      const obligStr = p.obligatory ? ' OBLIGATORY' : '';
-      const defVal = p.default_val ? ` DEFAULT '${p.default_val}'` : '';
-      const memIdStr = p.memory_id ? ` MEMORY ID ${p.memory_id.toUpperCase()}` : '';
-
-      if (p.kind === 'PARAMETER') {
-        let typeStr = '';
-        if (p.ref_table && p.ref_field) {
-          typeStr = `TYPE ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}`;
-        } else if (p.datatype === 'CHAR') {
-          typeStr = `TYPE c LENGTH ${p.length || 10}`;
-        } else if (p.datatype === 'NUMC') {
-          typeStr = `TYPE numc${p.length || 4}`;
-        } else if (p.datatype === 'DATS') {
-          typeStr = 'TYPE dats';
-        } else if (p.datatype === 'TIMS') {
-          typeStr = 'TYPE tims';
-        } else if (p.datatype === 'INT4') {
-          typeStr = 'TYPE i';
-        } else {
-          typeStr = `TYPE c LENGTH ${p.length || 10}`;
-        }
-        lines.push(`  PARAMETERS: ${pName} ${typeStr}${obligStr}${defVal}${memIdStr}. " ${p.text}`);
-      } else if (p.kind === 'RADIOBUTTON') {
-        const rGrp = p.radio_group ? ` USER-COMMAND uc_${p.radio_group.toLowerCase()}` : '';
-        const grp = p.radio_group ? ` RADIOBUTTON GROUP ${p.radio_group.toLowerCase()}` : '';
-        lines.push(`  PARAMETERS: ${pName}${grp}${defVal}. " ${p.text}`);
-      } else if (p.kind === 'CHECKBOX') {
-        lines.push(`  PARAMETERS: ${pName} AS CHECKBOX${defVal}. " ${p.text}`);
+    if (p.kind === 'PARAMETER') {
+      let typeStr = '';
+      if (p.ref_table && p.ref_field) {
+        typeStr = `TYPE ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}`;
+      } else if (p.datatype === 'CHAR') {
+        typeStr = `TYPE c LENGTH ${p.length || 10}`;
+      } else if (p.datatype === 'NUMC') {
+        typeStr = `TYPE n LENGTH ${p.length || 4}`;
+      } else if (p.datatype === 'DATS') {
+        typeStr = 'TYPE dats';
+      } else if (p.datatype === 'TIMS') {
+        typeStr = 'TYPE tims';
+      } else if (p.datatype === 'INT4') {
+        typeStr = 'TYPE i';
       } else {
-        // SELECT_OPTION
-        let forTarget = '';
-        if (p.ref_table && p.ref_field) {
-          forTarget = `${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}`;
-          neededTables.add(p.ref_table.toLowerCase());
-        } else if (p.datatype === 'DATS') {
-          forTarget = 'sy-datum';
-        } else {
-          forTarget = `${pName}_val`;
-        }
-        lines.push(`  SELECT-OPTIONS: ${pName} FOR ${forTarget}${obligStr}${defVal}${memIdStr}. " ${p.text}`);
+        typeStr = `TYPE c LENGTH ${p.length || 10}`;
       }
-    });
+      return `${indent}PARAMETERS: ${pName} ${typeStr}${obligStr}${defVal}${memIdStr}. " ${p.text}`;
+    }
 
-    lines.push(`SELECTION-SCREEN END OF BLOCK ${bId}.`);
+    if (p.kind === 'RADIOBUTTON') {
+      const grpName = (p.radio_group || 'R1').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 4) || 'r1';
+      const radioDef = p.default_val?.toUpperCase() === 'X' ? ` DEFAULT 'X'` : '';
+      return `${indent}PARAMETERS: ${pName} RADIOBUTTON GROUP ${grpName}${radioDef}. " ${p.text}`;
+    }
+
+    if (p.kind === 'CHECKBOX') {
+      const chkDef = p.default_val?.toUpperCase() === 'X' ? ` DEFAULT 'X'` : '';
+      return `${indent}PARAMETERS: ${pName} AS CHECKBOX${chkDef}. " ${p.text}`;
+    }
+
+    // SELECT_OPTION
+    let forTarget = '';
+    if (p.ref_table && p.ref_field) {
+      forTarget = `${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}`;
+    } else if (p.datatype === 'DATS') {
+      forTarget = 'sy-datum';
+    } else {
+      forTarget = `${pName}_val`;
+    }
+    return `${indent}SELECT-OPTIONS: ${pName} FOR ${forTarget}${obligStr}${defVal}${memIdStr}. " ${p.text}`;
+  };
+
+  groups.forEach((group) => {
+    const lines: string[] = [];
+    if (group.isBox) {
+      const textNum = String(blockIdx).padStart(3, '0');
+      lines.push(`SELECTION-SCREEN BEGIN OF BLOCK ${group.blockId} WITH FRAME TITLE TEXT-${textNum}. " ${group.title}`);
+      textSymbolLines.push(`  TEXT-${textNum} = '${group.title.replace(/'/g, "''")}'.`);
+      group.items.forEach((p) => lines.push(formatParamLine(p, '  ')));
+      lines.push(`SELECTION-SCREEN END OF BLOCK ${group.blockId}.`);
+      blockIdx++;
+    } else {
+      group.items.forEach((p) => lines.push(formatParamLine(p, '')));
+    }
     blockCodeSections.push(lines.join('\n'));
-    blockIdx++;
   });
+
+  const textSymbolComment =
+    textSymbolLines.length > 0
+      ? `\n*----------------------------------------------------------------------*\n* TEXT SYMBOLS (Box Titles)                                            *\n*----------------------------------------------------------------------*\n* INITIALIZATION.\n${textSymbolLines.map((l) => `* ${l}`).join('\n')}`
+      : '';
 
   return `************************************************************************
 * S01 : Selection Screen                                               *
@@ -383,7 +423,7 @@ SELECTION-SCREEN END OF BLOCK b1.
 *----------------------------------------------------------------------*
 * SELECTION-SCREEN DEFINITION                                          *
 *----------------------------------------------------------------------*
-${blockCodeSections.join('\n\n')}
+${blockCodeSections.join('\n\n')}${textSymbolComment}
 `;
 }
 

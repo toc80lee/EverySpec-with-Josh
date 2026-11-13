@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ProgramSpec } from './types/sap';
 import { SAMPLE_SPECS } from './data/sampleSpecs';
-import { TopNav, MainWorkspaceMode } from './components/TopNav';
+import { TopNav, MainWorkspaceMode, DualSplitLayout } from './components/TopNav';
 import { SpecEditor } from './components/SpecEditor';
 import { SapGuiMockup } from './components/SapGuiMockup';
 import { AbapCodeGenerator } from './components/AbapCodeGenerator';
@@ -9,6 +9,14 @@ import { SpecDocumentView } from './components/SpecDocumentView';
 import { ProgramTemplateModal } from './components/ProgramTemplateModal';
 import { PdfExportModal } from './components/PdfExportModal';
 import { SapGuiTheme, DEFAULT_SAP_THEME } from './data/sapGuiThemes';
+import { getCurrentUser, PRESET_USERS } from './utils/authStorage';
+
+const DUAL_SPLIT_CYCLE: DualSplitLayout[] = [
+  'top-bottom',
+  'left-right',
+  'bottom-top',
+  'right-left',
+];
 
 export default function App() {
   const [currentSpec, setCurrentSpec] = useState<ProgramSpec>(SAMPLE_SPECS[0]);
@@ -26,15 +34,100 @@ export default function App() {
   });
   const [mockDataTrigger, setMockDataTrigger] = useState<number>(0);
 
+  // Dual Screen Split Layout (상하, 좌우, 하상, 우좌) & Resizable Divider Ratio
+  const [splitLayout, setSplitLayout] = useState<DualSplitLayout>(() => {
+    try {
+      const saved = localStorage.getItem('sap_spec_dual_split_layout') as DualSplitLayout;
+      if (DUAL_SPLIT_CYCLE.includes(saved)) return saved;
+    } catch {
+      // ignore
+    }
+    return 'left-right';
+  });
+  const isVerticalSplit = splitLayout === 'top-bottom' || splitLayout === 'bottom-top';
+  const isReversedSplit = splitLayout === 'bottom-top' || splitLayout === 'right-left';
+
+  const [splitRatio, setSplitRatio] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('sap_spec_dual_split_ratio'));
+      if (!isNaN(saved) && saved >= 20 && saved <= 80) return saved;
+    } catch {
+      // ignore
+    }
+    return 50;
+  });
+  const [isResizingSplit, setIsResizingSplit] = useState(false);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  const splitRatioRef = useRef<number>(splitRatio);
+  splitRatioRef.current = splitRatio;
+
+  useEffect(() => {
+    if (!isResizingSplit) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      let nextRatio = 50;
+      if (!isVerticalSplit) {
+        if (rect.width <= 0) return;
+        nextRatio = ((e.clientX - rect.left) / rect.width) * 100;
+      } else {
+        if (rect.height <= 0) return;
+        nextRatio = ((e.clientY - rect.top) / rect.height) * 100;
+      }
+      const clamped = Math.min(80, Math.max(20, Math.round(nextRatio * 10) / 10));
+      splitRatioRef.current = clamped;
+      setSplitRatio(clamped);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingSplit(false);
+      document.body.style.cursor = '';
+      try {
+        localStorage.setItem('sap_spec_dual_split_ratio', String(splitRatioRef.current));
+      } catch {
+        // ignore
+      }
+    };
+
+    document.body.style.cursor = !isVerticalSplit ? 'col-resize' : 'row-resize';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingSplit, isVerticalSplit]);
+
+  const handleCycleSplitLayout = () => {
+    setSplitLayout((prev) => {
+      const idx = DUAL_SPLIT_CYCLE.indexOf(prev);
+      const next = DUAL_SPLIT_CYCLE[(idx + 1) % DUAL_SPLIT_CYCLE.length];
+      try {
+        localStorage.setItem('sap_spec_dual_split_layout', next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   // Create new blank specification
   const handleNewSpec = () => {
+    const activeUser = getCurrentUser();
+    const registeredAuthor = PRESET_USERS.some((u) => u.name === activeUser.name)
+      ? activeUser.name
+      : PRESET_USERS[0].name;
+
     const blankSpec: ProgramSpec = {
       id: `spec-custom-${Date.now()}`,
       program_id: 'ZR_CUSTOM_REPORT',
       tcode: 'ZREP01',
       title: '신규 ALV 그리드 레포트 프로그램',
       module: 'SD',
-      author: 'SAP 컨설턴트',
+      author: registeredAuthor,
       created_date: new Date().toISOString().split('T')[0],
       target_sap_release: 'SAP S/4HANA 2023',
       program_type: 'REPORT',
@@ -243,14 +336,32 @@ export default function App() {
           }
         }}
         onGenerateMockData={() => setMockDataTrigger((prev) => prev + 1)}
+        splitLayout={splitLayout}
+        onCycleSplitLayout={handleCycleSplitLayout}
       />
 
       {/* 2. Main Workspace Viewport */}
       <main className="flex-1 overflow-hidden p-3 bg-slate-950 print:p-0 print:bg-white print:overflow-visible print:h-auto">
         {workspaceMode === 'split' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 h-full overflow-hidden">
-            {/* Left Column: Specification Editor (5 / 12) */}
-            <div className="lg:col-span-6 h-full overflow-hidden">
+          <div
+            ref={splitContainerRef}
+            className={`flex h-full overflow-hidden ${
+              isVerticalSplit ? 'flex-col' : 'flex-row'
+            } ${isResizingSplit ? 'select-none' : ''}`}
+          >
+            {/* SpecEditor Pane */}
+            <div
+              style={
+                !isReversedSplit
+                  ? !isVerticalSplit
+                    ? { width: `calc(${splitRatio}% - 6px)` }
+                    : { height: `calc(${splitRatio}% - 6px)` }
+                  : undefined
+              }
+              className={`${
+                isReversedSplit ? 'order-3 flex-1' : 'order-1 shrink-0'
+              } ${isVerticalSplit ? 'w-full' : 'h-full'} overflow-hidden min-w-0 min-h-0`}
+            >
               <SpecEditor
                 spec={currentSpec}
                 onChange={(updated) => setCurrentSpec(updated)}
@@ -259,8 +370,56 @@ export default function App() {
               />
             </div>
 
-            {/* Right Column: Real-time Interactive SAP GUI Mockup (6 / 12) */}
-            <div className="lg:col-span-6 h-full overflow-hidden">
+            {/* Interactive Resizable Divider */}
+            <div
+              role="separator"
+              aria-orientation={!isVerticalSplit ? 'vertical' : 'horizontal'}
+              aria-label="창 크기 조절 경계선"
+              title="드래그하여 창 크기 조절 (더블클릭: 50:50 초기화)"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsResizingSplit(true);
+              }}
+              onDoubleClick={() => {
+                setSplitRatio(50);
+                try {
+                  localStorage.setItem('sap_spec_dual_split_ratio', '50');
+                } catch {
+                  // ignore
+                }
+              }}
+              className={`order-2 shrink-0 flex items-center justify-center group transition-colors ${
+                !isVerticalSplit
+                  ? 'w-3 h-full cursor-col-resize'
+                  : 'h-3 w-full cursor-row-resize'
+              }`}
+            >
+              <div
+                className={`rounded-full transition-colors ${
+                  isResizingSplit
+                    ? 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.6)]'
+                    : 'bg-slate-700 group-hover:bg-blue-400'
+                } ${
+                  !isVerticalSplit
+                    ? 'w-1 h-12 group-hover:h-20'
+                    : 'h-1 w-12 group-hover:w-20'
+                }`}
+              />
+            </div>
+
+            {/* Real-time Interactive SAP GUI Mockup Pane */}
+            <div
+              style={
+                isReversedSplit
+                  ? !isVerticalSplit
+                    ? { width: `calc(${splitRatio}% - 6px)` }
+                    : { height: `calc(${splitRatio}% - 6px)` }
+                  : undefined
+              }
+              className={`${
+                isReversedSplit ? 'order-1 shrink-0' : 'order-3 flex-1'
+              } ${isVerticalSplit ? 'w-full' : 'h-full'} overflow-hidden min-w-0 min-h-0`}
+            >
               <SapGuiMockup
                 spec={currentSpec}
                 onUpdateSpec={(updated) => setCurrentSpec(updated)}

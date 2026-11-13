@@ -1,6 +1,200 @@
+import { ProgramSpec } from '../types/sap';
+
 /**
- * AI Data Extraction Logic Generator
+ * AI Data Extraction Logic Generator & Context-Aware Markdown Suggestion
  */
+
+export interface MarkdownSuggestionRequest {
+  section: 'business_purpose' | 'data_extraction_logic' | 'data_flow_node';
+  sectionTitle?: string;
+  spec: ProgramSpec;
+  nodeInfo?: {
+    id: string;
+    label: string;
+    shape?: string;
+    prevNodes?: string[];
+    nextNodes?: string[];
+  };
+  currentValue?: string;
+}
+
+export async function requestMarkdownAiSuggestion(
+  req: MarkdownSuggestionRequest
+): Promise<{ markdown: string; source: 'ai' | 'fallback'; error?: string }> {
+  const { spec, section, sectionTitle, nodeInfo, currentValue } = req;
+
+  try {
+    const res = await fetch('/api/suggest-markdown', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        section,
+        sectionTitle,
+        programInfo: {
+          program_id: spec.program_id,
+          tcode: spec.tcode,
+          title: spec.title,
+          module: spec.module,
+          sample_type: spec.sample_type || '01',
+          target_sap_release: spec.target_sap_release,
+          cds_view_table: spec.cds_view_table,
+          business_purpose: spec.business_purpose,
+        },
+        selectionParams: spec.selection_params || [],
+        fieldCatalog: spec.field_catalog || [],
+        itemFieldCatalog: spec.item_grid?.field_catalog || [],
+        layout: spec.layout,
+        customToolbar: spec.custom_toolbar || [],
+        nodeInfo,
+        currentValue,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.markdown === 'string' && data.markdown.trim()) {
+        return { markdown: data.markdown.trim(), source: 'ai' };
+      }
+    }
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `서버 응답 오류 (${res.status})`);
+  } catch (err: any) {
+    console.warn('Backend AI markdown suggestion failed, using screen-aware fallback:', err);
+    const fallback = generateSmartMarkdownFallback(req);
+    return { markdown: fallback, source: 'fallback', error: err.message };
+  }
+}
+
+function generateSmartMarkdownFallback(req: MarkdownSuggestionRequest): string {
+  const { section, spec, nodeInfo } = req;
+  const sampleTypeLabel =
+    spec.sample_type === '02'
+      ? 'Master-Detail 2-Grid ALV'
+      : spec.sample_type === '03'
+      ? 'Tree ALV Grid'
+      : spec.sample_type === '04'
+      ? 'Multi-Dimensional Pivot Browser'
+      : 'Single ALV Grid';
+
+  const paramList = (spec.selection_params || [])
+    .slice(0, 6)
+    .map((p) => `\`${p.name}\`(${p.text || p.datatype}${p.obligatory ? ', 필수' : ''})`)
+    .join(', ');
+
+  const refTables = Array.from(
+    new Set(
+      [...(spec.field_catalog || []), ...(spec.item_grid?.field_catalog || [])]
+        .map((f) => f.ref_table?.trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  if (spec.cds_view_table?.trim()) {
+    refTables.unshift(spec.cds_view_table.trim().toUpperCase());
+  }
+
+  const keyFields = (spec.field_catalog || [])
+    .filter((f) => f.key && f.fieldname !== 'ZICON')
+    .map((f) => `\`${f.fieldname}\`(${f.coltext})`)
+    .join(', ');
+
+  const sumFields = (spec.field_catalog || [])
+    .filter((f) => f.do_sum)
+    .map((f) => `\`${f.fieldname}\`(${f.coltext})`)
+    .join(', ');
+
+  const hotspotFields = (spec.field_catalog || [])
+    .filter((f) => f.hotspot)
+    .map((f) => `\`${f.fieldname}\`${f.drilldown_tcode ? ` → ${f.drilldown_tcode}` : ''}`)
+    .join(', ');
+
+  const toolbarText = (spec.custom_toolbar || [])
+    .filter((b) => b.visible !== false)
+    .map((b) => `\`${b.function}\`(${b.text || b.quickinfo || '기능'})`)
+    .join(', ');
+
+  if (section === 'business_purpose') {
+    return `### 1. 개발 목적 및 업무 배경 (${spec.module} / ${spec.program_id})
+- **프로그램명**: ${spec.title} (\`${spec.tcode || 'ZREP'}\`, ${sampleTypeLabel})
+- **주요 목적**: ${paramList ? `${paramList} 조건으로 데이터를 실시간 조회하여` : '업무 조건별 데이터를 조회하여'} 현업 담당자가 직관적으로 현황을 모니터링하고 예외 건을 신속히 조치할 수 있도록 지원함.
+
+### 2. 화면 구성 및 주요 기능
+- **출력 구조**: ${sampleTypeLabel}${spec.layout?.grid_title ? ` (\`${spec.layout.grid_title}\`)` : ''} 기반 ${spec.field_catalog?.length || 0}개 컬럼 구성${spec.sample_type === '02' ? ` 및 하단 품목(${spec.item_grid?.field_catalog?.length || 0}개 컬럼) 연동` : ''}
+- **참조 테이블**: ${refTables.length > 0 ? refTables.map((t) => `\`${t}\``).join(', ') : `${spec.module} 표준 원천 테이블`}${hotspotFields ? `\n- **드릴다운 연계**: ${hotspotFields} 클릭 시 상세 전표 조회` : ''}${sumFields ? `\n- **집계 항목**: ${sumFields} 자동 합계 제공` : ''}${toolbarText ? `\n- **사용자 기능**: ${toolbarText}` : ''}`;
+  }
+
+  if (section === 'data_extraction_logic') {
+    return generateSmartFallbackLogic({
+      business_purpose: spec.business_purpose || '',
+      module: spec.module,
+      program_id: spec.program_id,
+      title: spec.title,
+      existing_fields: (spec.field_catalog || []).map((f) => f.fieldname),
+    });
+  }
+
+  // section === 'data_flow_node'
+  const nId = nodeInfo?.id || 'A';
+  const nLabel = nodeInfo?.label || '단계 처리';
+  const prevText = nodeInfo?.prevNodes?.length ? nodeInfo.prevNodes.join(', ') : '프로그램 기동';
+  const nextText = nodeInfo?.nextNodes?.length ? nodeInfo.nextNodes.join(', ') : '화면 반환 / 종료';
+  const upperLabel = nLabel.toUpperCase();
+
+  if (upperLabel.includes('INITIAL') || upperLabel.includes('시작')) {
+    return `### [${nId}] ${nLabel}
+- **처리 목적**: \`${spec.program_id}\` (\`${spec.tcode}\`) 실행 시 전역 변수 및 ${sampleTypeLabel} 제어 객체 초기화
+- **주요 로직**:
+  - ${paramList ? `선택화면 기본값(${paramList}) 자동 세팅` : '조회 기준일자 및 회사코드 기본값 세팅'}
+  - \`AUTHORITY-CHECK\`를 통한 ${spec.module} 모듈 실행 권한 검증
+- **후속 흐름**: ${nextText}`;
+  }
+
+  if (upperLabel.includes('SELECTION') || upperLabel.includes('선택') || upperLabel.includes('조회 조건') || upperLabel.includes('입력')) {
+    return `### [${nId}] ${nLabel}
+- **선행 단계**: ${prevText}
+- **화면 파라미터 구성**: ${paramList || '표준 조회 조건 파라미터'}
+- **입력값 검증 규칙**:
+  - 필수 입력 항목 누락 여부 및 유효 범위(\`LOW <= HIGH\`) 점검
+  - 오류 발생 시 \`MESSAGE E001\` 출력 및 해당 입력 필드로 커서 이동
+- **후속 흐름**: ${nextText}`;
+  }
+
+  if (upperLabel.includes('SELECT') || upperLabel.includes('추출') || upperLabel.includes('조회') || nodeInfo?.shape === 'cylinder') {
+    return `### [${nId}] ${nLabel}
+- **선행 단계**: ${prevText}
+- **대상 테이블**: ${refTables.length > 0 ? refTables.map((t) => `\`${t}\``).join(', ') : `${spec.module} 원천 테이블`}
+- **추출 및 조인 로직**:
+  - 선택 조건(${paramList || '조회 조건'}) 기반으로 원천 테이블 조회 후 \`GT_DATA\` 적재
+  - 키 필드(${keyFields || '주요 식별자'}) 기준 정렬 및 불필요한 중복 조회 방지(\`FOR ALL ENTRIES\` 전 \`IS NOT INITIAL\` 체크)
+- **후속 흐름**: ${nextText}`;
+  }
+
+  if (upperLabel.includes('ALV') || upperLabel.includes('PBO') || upperLabel.includes('출력') || upperLabel.includes('바인딩') || upperLabel.includes('갱신')) {
+    return `### [${nId}] ${nLabel}
+- **선행 단계**: ${prevText}
+- **화면 구성 (${sampleTypeLabel})**:
+  - 그리드 타이틀: \`${spec.layout?.grid_title || spec.title}\` (Zebra: ${spec.layout?.zebra ? 'ON' : 'OFF'}, 선택모드: \`${spec.layout?.sel_mode || 'A'}\`)
+  - 필드 카탈로그(${spec.field_catalog?.length || 0}개 컬럼) 및 신호등(\`ZICON\`) 바인딩${sumFields ? `\n  - 자동 합계(\`DO_SUM\`): ${sumFields}` : ''}${toolbarText ? `\n  - 툴바 버튼: ${toolbarText}` : ''}
+- **호출 메서드**: \`SET_TABLE_FOR_FIRST_DISPLAY\` / \`REFRESH_TABLE_DISPLAY\`
+- **후속 흐름**: ${nextText}`;
+  }
+
+  if (upperLabel.includes('PAI') || upperLabel.includes('명령') || upperLabel.includes('드릴다운') || upperLabel.includes('이벤트') || upperLabel.includes('BAPI')) {
+    return `### [${nId}] ${nLabel}
+- **선행 단계**: ${prevText}
+- **이벤트 및 사용자 명령 처리**:${hotspotFields ? `\n  - 핫스팟/더블클릭 드릴다운: ${hotspotFields}` : '\n  - 행 선택/더블클릭 이벤트 핸들러(`HANDLE_DOUBLE_CLICK`, `HANDLE_HOTSPOT_CLICK`) 처리'}${toolbarText ? `\n  - 커스텀 툴바(\`USER_COMMAND\`): ${toolbarText}` : ''}
+  - 처리 완료 후 \`REFRESH_TABLE_DISPLAY\`로 화면 최신 상태 반영
+- **후속 흐름**: ${nextText}`;
+  }
+
+  return `### [${nId}] ${nLabel}
+- **선행 단계**: ${prevText}
+- **처리 사양 (${spec.program_id} / ${sampleTypeLabel})**:
+  - ${refTables.length > 0 ? `참조 테이블(${refTables.map((t) => `\`${t}\``).join(', ')}) 기반으로` : '내부 테이블 데이터 기준으로'} 해당 단계의 비즈니스 검증 및 가공 로직 수행
+  - 주요 관리 필드: ${keyFields || `${spec.field_catalog?.length || 0}개 출력 컬럼`}
+- **후속 흐름**: ${nextText}`;
+}
 
 export interface GenerateLogicRequest {
   business_purpose: string;

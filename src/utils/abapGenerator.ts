@@ -41,13 +41,51 @@ export function generateFullAbapSource(spec: ProgramSpec): string {
     return `    ${f.fieldname.toLowerCase().padEnd(14)}${typeMapping[f.datatype] || 'TYPE string'},       " ${f.coltext}`;
   }).join('\n');
 
-  // Build Selection Screen
-  const selScreenCode = spec.selection_params.map(p => {
-    const isParam = p.kind === 'PARAMETER';
+  // Build Selection Screen Blocks & Parameters
+  const selGroups: { isBox: boolean; blockId: string; title: string; items: SelectionParameter[] }[] = [];
+  const selBoxMap = new Map<string, { isBox: boolean; blockId: string; title: string; items: SelectionParameter[] }>();
+
+  spec.selection_params.forEach((p) => {
+    const rawId = p.block_id?.trim();
+    const rawTitle = p.block_title?.trim();
+    if (rawId || rawTitle) {
+      const key = rawId || `box_${rawTitle}`;
+      if (!selBoxMap.has(key)) {
+        const grp = {
+          isBox: true,
+          blockId: (rawId || `b${selBoxMap.size + 1}`).toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 8) || `b${selBoxMap.size + 1}`,
+          title: rawTitle || rawId || '기본 조회 조건',
+          items: [] as SelectionParameter[],
+        };
+        selBoxMap.set(key, grp);
+        selGroups.push(grp);
+      }
+      selBoxMap.get(key)!.items.push(p);
+    } else {
+      const last = selGroups[selGroups.length - 1];
+      if (last && !last.isBox) {
+        last.items.push(p);
+      } else {
+        selGroups.push({ isBox: false, blockId: '', title: '', items: [p] });
+      }
+    }
+  });
+
+  const formatSelParam = (p: SelectionParameter, indent: string) => {
     const name = p.name.toLowerCase();
     const oblig = p.obligatory ? ' OBLIGATORY' : '';
     const def = p.default_val ? ` DEFAULT '${p.default_val}'` : '';
     const mem = p.memory_id ? ` MEMORY ID ${p.memory_id}` : '';
+
+    if (p.kind === 'RADIOBUTTON') {
+      const grp = (p.radio_group || 'R1').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 4) || 'r1';
+      const radioDef = p.default_val?.toUpperCase() === 'X' ? ` DEFAULT 'X'` : '';
+      return `${indent}PARAMETERS: ${name} RADIOBUTTON GROUP ${grp}${radioDef}.    " ${p.text}`;
+    }
+    if (p.kind === 'CHECKBOX') {
+      const chkDef = p.default_val?.toUpperCase() === 'X' ? ` DEFAULT 'X'` : '';
+      return `${indent}PARAMETERS: ${name} AS CHECKBOX${chkDef}.    " ${p.text}`;
+    }
 
     const abapType =
       p.datatype === 'DATS'
@@ -64,20 +102,38 @@ export function generateFullAbapSource(spec: ProgramSpec): string {
         ? 'TYPE string'
         : `TYPE c LENGTH ${p.length || 10}`;
 
-    if (isParam) {
+    if (p.kind === 'PARAMETER') {
       if (p.ref_table && p.ref_field) {
-        return `  PARAMETERS: ${name} TYPE ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}${oblig}${def}${mem}.    " ${p.text}`;
+        return `${indent}PARAMETERS: ${name} TYPE ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}${oblig}${def}${mem}.    " ${p.text}`;
       }
-      return `  PARAMETERS: ${name} ${abapType}${oblig}${def}${mem}.    " ${p.text}`;
+      return `${indent}PARAMETERS: ${name} ${abapType}${oblig}${def}${mem}.    " ${p.text}`;
     } else {
       if (p.ref_table && p.ref_field) {
-        return `  SELECT-OPTIONS: ${name} FOR ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}${oblig}${def}${mem}.    " ${p.text}`;
+        return `${indent}SELECT-OPTIONS: ${name} FOR ${p.ref_table.toLowerCase()}-${p.ref_field.toLowerCase()}${oblig}${def}${mem}.    " ${p.text}`;
       }
       const forTarget = p.datatype === 'DATS' ? 'sy-datum' : `${name}_val`;
-      const decl = p.datatype === 'DATS' ? '' : `  DATA: ${name}_val ${abapType}.\n`;
-      return `${decl}  SELECT-OPTIONS: ${name} FOR ${forTarget}${oblig}${def}.    " ${p.text}`;
+      const decl = p.datatype === 'DATS' ? '' : `${indent}DATA: ${name}_val ${abapType}.\n`;
+      return `${decl}${indent}SELECT-OPTIONS: ${name} FOR ${forTarget}${oblig}${def}.    " ${p.text}`;
     }
-  }).join('\n');
+  };
+
+  let blockSeq = 1;
+  const initTextLines: string[] = [];
+  const selScreenCode = selGroups
+    .map((grp) => {
+      if (grp.isBox) {
+        const textNo = String(blockSeq).padStart(3, '0');
+        initTextLines.push(`  TEXT-${textNo} = '${grp.title.replace(/'/g, "''")}'.`);
+        blockSeq++;
+        return [
+          `SELECTION-SCREEN BEGIN OF BLOCK ${grp.blockId} WITH FRAME TITLE TEXT-${textNo}.`,
+          ...grp.items.map((p) => formatSelParam(p, '  ')),
+          `SELECTION-SCREEN END OF BLOCK ${grp.blockId}.`,
+        ].join('\n');
+      }
+      return grp.items.map((p) => formatSelParam(p, '')).join('\n');
+    })
+    .join('\n\n');
 
   // Build Field Catalog Macro / Logic
   const fcatLines = spec.field_catalog.map(f => {
@@ -295,15 +351,13 @@ DATA: go_event_receiver TYPE REF TO lcl_event_receiver.
 *----------------------------------------------------------------------*
 * SELECTION SCREEN
 *----------------------------------------------------------------------*
-SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
-${selScreenCode}
-SELECTION-SCREEN END OF BLOCK b1.
+${selScreenCode || 'SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.\nSELECTION-SCREEN END OF BLOCK b1.'}
 
 *----------------------------------------------------------------------*
 * INITIALIZATION
 *----------------------------------------------------------------------*
 INITIALIZATION.
-  TEXT-001 = '기본 조회 조건 (Selection Criteria)'.
+${initTextLines.length > 0 ? initTextLines.join('\n') : `  TEXT-001 = '기본 조회 조건 (Selection Criteria)'.`}
   gs_variant-report = sy-repid.
 
 *----------------------------------------------------------------------*

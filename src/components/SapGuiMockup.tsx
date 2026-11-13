@@ -1128,30 +1128,135 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
       {/* 4. Main Body: ALV Grid or Selection Screen */}
       <div className="flex-1 flex flex-col overflow-hidden bg-white relative">
         {screenMode === 'selection' ? (
-          /* Selection Screen with Theme styling */
+          /* Selection Screen with Theme styling: Titled Frame Boxes & Radio Button Groups */
           <div className={`flex-1 p-5 overflow-y-auto space-y-4 transition-colors duration-200 ${themeStyles.selectionBoxBg}`}>
-            <div className={`border rounded p-4 shadow-xs max-w-2xl bg-white ${themeStyles.selectionBoxBorder}`}>
-              <div className={`font-semibold text-xs mb-3 border-b pb-1 flex items-center justify-between ${themeStyles.selectionBoxBorder} text-slate-800`}>
-                <span className="font-bold">기본 조회 조건 (Selection Criteria)</span>
-                <span className="font-mono text-[10px] text-slate-500">
-                  BLOCK b1 WITH FRAME TITLE TEXT-001
-                </span>
-              </div>
+            {(() => {
+              type RenderSegment =
+                | { type: 'box'; key: string; blockId: string; blockTitle: string; items: SelectionParameter[] }
+                | { type: 'unboxed'; key: string; items: SelectionParameter[] };
 
-              <div className="space-y-2.5">
-                {spec.selection_params.map((param) => (
+              const segments: RenderSegment[] = [];
+              const boxLookup = new Map<string, Extract<RenderSegment, { type: 'box' }>>();
+
+              spec.selection_params.forEach((p, idx) => {
+                const rawTitle = p.block_title?.trim() || '';
+                const rawId = p.block_id?.trim() || '';
+                if (rawTitle || rawId) {
+                  const mapKey = rawId || `title_${rawTitle}`;
+                  let seg = boxLookup.get(mapKey);
+                  if (!seg) {
+                    seg = {
+                      type: 'box',
+                      key: mapKey,
+                      blockId: rawId || `b${boxLookup.size + 1}`,
+                      blockTitle: rawTitle || rawId,
+                      items: [],
+                    };
+                    boxLookup.set(mapKey, seg);
+                    segments.push(seg);
+                  }
+                  seg.items.push(p);
+                } else {
+                  const last = segments[segments.length - 1];
+                  if (last && last.type === 'unboxed') {
+                    last.items.push(p);
+                  } else {
+                    segments.push({ type: 'unboxed', key: `unboxed_${idx}`, items: [p] });
+                  }
+                }
+              });
+
+              const isRadioChecked = (param: SelectionParameter): boolean => {
+                if (param.kind !== 'RADIOBUTTON') return false;
+                const grp = (param.radio_group || 'R1').toUpperCase();
+                const groupPeers = spec.selection_params.filter(
+                  (x) => x.kind === 'RADIOBUTTON' && (x.radio_group || 'R1').toUpperCase() === grp
+                );
+                const anyExplicitLow = groupPeers.some((x) => x.low === 'X');
+                if (anyExplicitLow) {
+                  return param.low === 'X';
+                }
+                const anyDefault = groupPeers.some((x) => x.default_val?.toUpperCase() === 'X');
+                if (anyDefault) {
+                  return param.default_val?.toUpperCase() === 'X';
+                }
+                return groupPeers[0]?.id === param.id;
+              };
+
+              const handleSelectRadio = (param: SelectionParameter) => {
+                if (!onUpdateSpec) return;
+                const grp = (param.radio_group || 'R1').toUpperCase();
+                const updatedParams = spec.selection_params.map((p) => {
+                  if (p.kind === 'RADIOBUTTON' && (p.radio_group || 'R1').toUpperCase() === grp) {
+                    return { ...p, low: p.id === param.id ? 'X' : '' };
+                  }
+                  return p;
+                });
+                onUpdateSpec({ ...spec, selection_params: updatedParams });
+              };
+
+              const renderParamRow = (param: SelectionParameter) => {
+                if (param.kind === 'RADIOBUTTON') {
+                  const grp = (param.radio_group || 'R1').toUpperCase();
+                  const checked = isRadioChecked(param);
+                  return (
+                    <div key={param.id} className="flex items-center text-xs gap-2.5 pl-4">
+                      <label className="flex items-center gap-2 cursor-pointer select-none group">
+                        <input
+                          type="radio"
+                          name={`sap_radio_${grp}`}
+                          checked={checked}
+                          onChange={() => handleSelectRadio(param)}
+                          className="w-3.5 h-3.5 accent-blue-700 cursor-pointer"
+                        />
+                        <span className={`font-medium ${checked ? 'text-slate-900 font-semibold' : 'text-slate-700 group-hover:text-slate-900'}`}>
+                          {param.text}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          ({param.name} · {grp})
+                        </span>
+                      </label>
+                    </div>
+                  );
+                }
+
+                if (param.kind === 'CHECKBOX') {
+                  const checked =
+                    param.low !== undefined ? param.low === 'X' : param.default_val?.toUpperCase() === 'X';
+                  return (
+                    <div key={param.id} className="flex items-center text-xs gap-2.5 pl-4">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (!onUpdateSpec) return;
+                            const updatedParams = spec.selection_params.map((p) =>
+                              p.id === param.id ? { ...p, low: e.target.checked ? 'X' : '' } : p
+                            );
+                            onUpdateSpec({ ...spec, selection_params: updatedParams });
+                          }}
+                          className="w-3.5 h-3.5 accent-blue-700 rounded cursor-pointer"
+                        />
+                        <span className="font-medium text-slate-800">{param.text}</span>
+                      </label>
+                    </div>
+                  );
+                }
+
+                return (
                   <div key={param.id} className="flex items-center text-xs gap-3">
-                    <div className="w-48 text-right font-medium text-slate-700 flex items-center justify-end gap-1">
+                    <div className="w-48 text-right font-medium text-slate-700 flex items-center justify-end gap-1 shrink-0">
                       {param.obligatory && <span className="text-red-600 font-bold">*</span>}
                       <span>{param.text}</span>
                     </div>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-wrap">
                       <input
                         type="text"
                         value={param.low || ''}
                         onChange={(e) => {
-                          const updatedParams = spec.selection_params.map(p =>
+                          const updatedParams = spec.selection_params.map((p) =>
                             p.id === param.id ? { ...p, low: e.target.value } : p
                           );
                           if (onUpdateSpec) onUpdateSpec({ ...spec, selection_params: updatedParams });
@@ -1166,7 +1271,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                             type="text"
                             value={param.high || ''}
                             onChange={(e) => {
-                              const updatedParams = spec.selection_params.map(p =>
+                              const updatedParams = spec.selection_params.map((p) =>
                                 p.id === param.id ? { ...p, high: e.target.value } : p
                               );
                               if (onUpdateSpec) onUpdateSpec({ ...spec, selection_params: updatedParams });
@@ -1175,8 +1280,9 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                             className="w-32 bg-white border border-slate-400 px-2 py-0.5 text-xs font-mono focus:outline-none focus:border-blue-600 shadow-inner"
                           />
                           <button
+                            type="button"
                             onClick={() => setActiveParamForMulti(param)}
-                            className="px-2 py-0.5 bg-[#ece9d8] border border-slate-400 hover:bg-white text-emerald-700 font-bold text-xs"
+                            className="px-2 py-0.5 bg-[#ece9d8] border border-slate-400 hover:bg-white text-emerald-700 font-bold text-xs cursor-pointer"
                           >
                             ▶
                           </button>
@@ -1184,9 +1290,38 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+                );
+              };
+
+              if (segments.length === 0) {
+                return (
+                  <div className={`border rounded p-6 shadow-xs max-w-2xl bg-white text-center text-xs text-slate-500 ${themeStyles.selectionBoxBorder}`}>
+                    등록된 선택 화면 파라미터가 없습니다. 좌측 Selection Screen 탭에서 항목을 추가해 주세요.
+                  </div>
+                );
+              }
+
+              return segments.map((seg, segIdx) =>
+                seg.type === 'box' ? (
+                  <fieldset
+                    key={seg.key}
+                    className={`border rounded p-4 pt-2.5 shadow-xs max-w-2xl bg-white ${themeStyles.selectionBoxBorder}`}
+                  >
+                    <legend className="px-2 text-xs font-bold text-slate-800 flex items-center gap-2">
+                      <span>{seg.blockTitle}</span>
+                      <span className="font-mono text-[10px] font-normal text-slate-400">
+                        BLOCK {seg.blockId.toUpperCase()}
+                      </span>
+                    </legend>
+                    <div className="space-y-2.5 mt-1">{seg.items.map(renderParamRow)}</div>
+                  </fieldset>
+                ) : (
+                  <div key={seg.key || `unboxed-${segIdx}`} className="max-w-2xl px-4 py-2 space-y-2.5">
+                    {seg.items.map(renderParamRow)}
+                  </div>
+                )
+              );
+            })()}
           </div>
         ) : (
           /* ALV Grid Container: Master-Detail Split or Single ALV or 04 Pivot Browser */

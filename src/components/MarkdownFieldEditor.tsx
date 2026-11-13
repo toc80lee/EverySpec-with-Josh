@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Bold,
   Italic,
@@ -9,7 +9,28 @@ import {
   Heading2,
   Eye,
   Edit3,
+  Mic,
+  MicOff,
+  Sparkles,
+  Loader2,
+  Check,
 } from 'lucide-react';
+import { ProgramSpec } from '../types/sap';
+import { useVoiceInput } from '../hooks/useVoiceInput';
+import { requestMarkdownAiSuggestion } from '../utils/aiLogicGenerator';
+
+export interface MarkdownAiContext {
+  section: 'business_purpose' | 'data_extraction_logic' | 'data_flow_node';
+  sectionTitle?: string;
+  spec: ProgramSpec;
+  nodeInfo?: {
+    id: string;
+    label: string;
+    shape?: string;
+    prevNodes?: string[];
+    nextNodes?: string[];
+  };
+}
 
 interface MarkdownFieldEditorProps {
   value: string;
@@ -17,6 +38,7 @@ interface MarkdownFieldEditorProps {
   placeholder?: string;
   rows?: number;
   minHeight?: string;
+  aiContext?: MarkdownAiContext;
 }
 
 /**
@@ -29,9 +51,59 @@ export const MarkdownFieldEditor: React.FC<MarkdownFieldEditorProps> = ({
   placeholder = '마크다운(# 제목, - 목록, **굵게**, `코드`) 형식으로 입력해 주세요...',
   rows = 5,
   minHeight = '130px',
+  aiContext,
 }) => {
   // Default to 'preview' mode per RFQ v1.22
   const [mode, setMode] = useState<'edit' | 'preview'>('preview');
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const latestValueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    latestValueRef.current = value;
+  }, [value]);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const voice = useVoiceInput({
+    lang: 'ko-KR',
+    onResult: (finalText) => {
+      const prev = latestValueRef.current || '';
+      const sep = prev.trim() ? '\n' : '';
+      onChangeRef.current(`${prev}${sep}${finalText}`);
+    },
+  });
+
+  const handleAiSuggest = async () => {
+    if (!aiContext) return;
+    setIsGeneratingAi(true);
+    setAiStatus(null);
+    setAiError(null);
+    try {
+      const res = await requestMarkdownAiSuggestion({
+        section: aiContext.section,
+        sectionTitle: aiContext.sectionTitle,
+        spec: aiContext.spec,
+        nodeInfo: aiContext.nodeInfo,
+        currentValue: latestValueRef.current,
+      });
+      onChangeRef.current(res.markdown);
+      setAiStatus(
+        res.source === 'ai'
+          ? '현재 화면 구성과 위치에 맞는 AI 추천 내용이 반영되었습니다.'
+          : '화면 구성을 반영한 표준 사양 내용이 제안되었습니다.'
+      );
+      setTimeout(() => setAiStatus(null), 5000);
+    } catch (err: any) {
+      setAiError(err?.message || 'AI 제안 생성 중 오류가 발생했습니다.');
+      setTimeout(() => setAiError(null), 6000);
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  };
 
   const insertSyntax = (before: string, after: string = '') => {
     if (mode === 'preview') return;
@@ -224,34 +296,128 @@ export const MarkdownFieldEditor: React.FC<MarkdownFieldEditorProps> = ({
           </button>
         </div>
 
-        {/* Edit / Markdown Preview Switcher */}
-        <div className="flex items-center bg-slate-200/80 p-0.5 rounded text-[11px] font-semibold">
+        {/* Unified Right Action Icons: Voice -> AI -> Display <-> Edit */}
+        <div className="flex items-center gap-1">
+          {/* 1. Voice Recording Button (Icon-only) */}
           <button
             type="button"
-            onClick={() => setMode('edit')}
-            className={`px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-all ${
-              mode === 'edit'
-                ? 'bg-white text-blue-700 shadow-2xs font-bold'
-                : 'text-slate-600 hover:text-slate-900'
+            onClick={voice.toggleListening}
+            disabled={voice.isTranscribing || isGeneratingAi}
+            title={
+              voice.isListening
+                ? '음성 녹음 중... 클릭하여 완료'
+                : voice.isTranscribing
+                ? '음성 텍스트 변환 중...'
+                : '음성 입력 (녹음)'
+            }
+            aria-label="음성 입력 (녹음)"
+            className={`p-1.5 rounded flex items-center justify-center cursor-pointer transition-all shadow-2xs disabled:opacity-50 ${
+              voice.isListening
+                ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse ring-2 ring-rose-300'
+                : voice.isTranscribing
+                ? 'bg-indigo-600 text-white cursor-wait border border-indigo-600'
+                : 'bg-white hover:bg-blue-50 text-blue-600 border border-slate-300'
             }`}
           >
-            <Edit3 className="w-3 h-3" />
-            <span>편집</span>
+            {voice.isListening ? (
+              <MicOff className="w-3.5 h-3.5" />
+            ) : voice.isTranscribing ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Mic className="w-3.5 h-3.5" />
+            )}
           </button>
+
+          {/* 2. AI Context Suggestion Button (Icon-only) */}
+          {aiContext && (
+            <button
+              type="button"
+              onClick={handleAiSuggest}
+              disabled={isGeneratingAi || voice.isListening || voice.isTranscribing}
+              title="AI 제안 (위치 및 화면 구성 기반 최적 내용 제안)"
+              aria-label="AI 제안"
+              className={`p-1.5 rounded flex items-center justify-center cursor-pointer transition-all shadow-2xs disabled:opacity-50 ${
+                isGeneratingAi
+                  ? 'bg-indigo-600 text-white cursor-wait border border-indigo-600'
+                  : 'bg-white hover:bg-indigo-50 text-indigo-600 border border-slate-300'
+              }`}
+            >
+              {isGeneratingAi ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+            </button>
+          )}
+
+          {/* 3. Single Display <-> Edit Toggle Button (Icon-only) */}
           <button
             type="button"
-            onClick={() => setMode('preview')}
-            className={`px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-all ${
-              mode === 'preview'
-                ? 'bg-white text-blue-700 shadow-2xs font-bold'
-                : 'text-slate-600 hover:text-slate-900'
+            onClick={() => setMode((prev) => (prev === 'preview' ? 'edit' : 'preview'))}
+            title="Display ↔ Edit"
+            aria-label="Display ↔ Edit"
+            className={`p-1.5 rounded flex items-center justify-center cursor-pointer transition-all shadow-2xs ${
+              mode === 'edit'
+                ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600'
+                : 'bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-300'
             }`}
           >
-            <Eye className="w-3 h-3" />
-            <span>미리보기</span>
+            {mode === 'preview' ? (
+              <Edit3 className="w-3.5 h-3.5" />
+            ) : (
+              <Eye className="w-3.5 h-3.5" />
+            )}
           </button>
         </div>
       </div>
+
+      {/* Live Voice / AI Feedback Strips */}
+      {voice.isListening && (
+        <div className="px-2.5 py-1.5 bg-rose-50 border-b border-rose-200 text-[11px] text-rose-800 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping shrink-0" />
+            <span>음성 녹음 중... 녹음 버튼을 다시 클릭하면 텍스트로 변환됩니다.</span>
+          </div>
+          {voice.transcript && (
+            <span className="font-semibold text-rose-950 italic truncate max-w-[220px]">
+              "{voice.transcript}"
+            </span>
+          )}
+        </div>
+      )}
+
+      {voice.isTranscribing && (
+        <div className="px-2.5 py-1.5 bg-indigo-50 border-b border-indigo-200 text-[11px] text-indigo-800 flex items-center gap-1.5">
+          <Loader2 className="w-3.5 h-3.5 text-indigo-600 animate-spin shrink-0" />
+          <span>음성을 텍스트로 변환하고 있습니다...</span>
+        </div>
+      )}
+
+      {voice.errorMessage && (
+        <div className="px-2.5 py-1.5 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-900 flex items-center justify-between gap-2">
+          <span>{voice.errorMessage}</span>
+          <button
+            type="button"
+            onClick={voice.clearError}
+            className="text-[11px] font-semibold text-amber-700 hover:underline shrink-0 cursor-pointer"
+          >
+            닫기
+          </button>
+        </div>
+      )}
+
+      {aiStatus && (
+        <div className="px-2.5 py-1.5 bg-emerald-50 border-b border-emerald-200 text-[11px] text-emerald-800 flex items-center gap-1.5">
+          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span>{aiStatus}</span>
+        </div>
+      )}
+
+      {aiError && (
+        <div className="px-2.5 py-1.5 bg-rose-50 border-b border-rose-200 text-[11px] text-rose-800 flex items-center gap-1.5">
+          <span>{aiError}</span>
+        </div>
+      )}
 
       {/* Editor Content Area (White Background) */}
       <div className="bg-white p-2.5">
