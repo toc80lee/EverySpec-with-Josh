@@ -33,6 +33,13 @@ import {
   PRESET_USERS,
   CurrentUser,
 } from '../utils/authStorage';
+import {
+  COMMON_PROJECT_CODE,
+  TEMP_PROJECT_CODE,
+  getAccessibleProjectsForUser,
+  isReadOnlyCommonSpec,
+  isSpecVisibleInProject,
+} from '../utils/projectStorage';
 
 interface SpecManagerModalProps {
   currentSpec: ProgramSpec;
@@ -62,6 +69,7 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
 
   // Copy modal state
   const [copyingSource, setCopyingSource] = useState<SavedProgramSpecItem | null>(null);
+  const [copyTargetProject, setCopyTargetProject] = useState<string>(TEMP_PROJECT_CODE);
   const [newProgramIdInput, setNewProgramIdInput] = useState('');
   const [copyError, setCopyError] = useState<string | null>(null);
 
@@ -122,8 +130,15 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Filtered spec list
+  const accessibleProjects = getAccessibleProjectsForUser(currentUser.name);
+  const accessibleCodes = new Set(accessibleProjects.map((p) => p.code));
+
+  // Filtered spec list (enforces TEMP privacy & project membership visibility)
   const filteredSpecs = specs.filter((s) => {
+    const projCode = s.project_code || TEMP_PROJECT_CODE;
+    if (!accessibleCodes.has(projCode)) return false;
+    if (!isSpecVisibleInProject(s, projCode, currentUser.name)) return false;
+
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
     return (
@@ -132,6 +147,7 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
       s.tcode.toLowerCase().includes(query) ||
       s.module.toLowerCase().includes(query) ||
       s.author.toLowerCase().includes(query) ||
+      projCode.toLowerCase().includes(query) ||
       (s.sample_type && s.sample_type.includes(query))
     );
   });
@@ -158,6 +174,9 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
   const handleOpenCopyDialog = (item: SavedProgramSpecItem, e: React.MouseEvent) => {
     e.stopPropagation();
     setCopyingSource(item);
+    setCopyTargetProject(
+      item.project_code === COMMON_PROJECT_CODE ? TEMP_PROJECT_CODE : item.project_code || TEMP_PROJECT_CODE
+    );
     setNewProgramIdInput(`${item.program_id}_COPY`);
     setCopyError(null);
   };
@@ -165,12 +184,17 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
   // Execute copy
   const handleExecuteCopy = () => {
     if (!copyingSource) return;
-    const res = copySpecInStorage(copyingSource.program_id, newProgramIdInput, currentUser.name);
+    const res = copySpecInStorage(
+      copyingSource.program_id,
+      newProgramIdInput,
+      currentUser.name,
+      copyTargetProject
+    );
     if (res.success && res.newSpec) {
       refreshList();
       setCopyingSource(null);
       setCopyError(null);
-      showToast('success', `신규 프로그램 '${res.newSpec.program_id}'(으)로 복사되었습니다.`);
+      showToast('success', `'${res.newSpec.project_code}' 프로젝트로 '${res.newSpec.program_id}' 복사 완료`);
       onSelectSpec(res.newSpec);
       onClose();
     } else {
@@ -329,7 +353,13 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setIsSaveModalOpen(true)}
+              onClick={() => {
+                if (isReadOnlyCommonSpec(currentSpec)) {
+                  showToast('error', 'COMMON 프로젝트 사양서는 읽기 전용입니다. 복사 버튼으로 다른 프로젝트에 복제하세요.');
+                  return;
+                }
+                setIsSaveModalOpen(true);
+              }}
               className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
               title="현재 편집 중인 사양서를 변경 이력과 함께 저장합니다."
             >
@@ -406,6 +436,7 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
               <thead className="bg-[#e9f0f8] border-b border-slate-200 text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10">
                 <tr>
                   <th className="px-3.5 py-2.5 w-40">Program ID (클릭시 불러오기)</th>
+                  <th className="px-3.5 py-2.5 w-28">Project</th>
                   <th className="px-3.5 py-2.5 w-28">Type</th>
                   <th className="px-3.5 py-2.5 w-20">Module</th>
                   <th className="px-3.5 py-2.5 w-28">T-Code</th>
@@ -421,15 +452,15 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
               <tbody className="divide-y divide-slate-200 font-sans">
                 {filteredSpecs.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-slate-400">
-                      저장된 Program Spec이 없습니다.
+                    <td colSpan={10} className="py-12 text-center text-slate-400">
+                      조회 가능한 Program Spec이 없습니다.
                     </td>
                   </tr>
                 ) : (
                   filteredSpecs.map((item) => {
                     const isCurrent = item.program_id === currentSpec.program_id;
                     const isMySpec = item.author === currentUser.name;
-                    const isSystem = !!item.is_system;
+                    const isSystem = !!item.is_system || isReadOnlyCommonSpec(item.spec);
                     const canDelete = !isSystem && isMySpec;
 
                     const latestHistory =
@@ -472,6 +503,11 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
                               </span>
                             )}
                           </div>
+                        </td>
+
+                        {/* Project */}
+                        <td className="px-3.5 py-2.5 font-mono font-bold text-slate-700">
+                          {item.project_code || TEMP_PROJECT_CODE}
                         </td>
 
                         {/* 2. Type */}
@@ -794,6 +830,25 @@ export const SpecManagerModal: React.FC<SpecManagerModalProps> = ({
                 <div className="px-3 py-1.5 bg-slate-100 border border-slate-200 rounded text-xs font-mono font-bold text-slate-700">
                   {copyingSource.program_id} ({copyingSource.title})
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  대상 프로젝트 선택 <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={copyTargetProject}
+                  onChange={(e) => setCopyTargetProject(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-semibold rounded-lg border border-slate-300 bg-slate-50 text-slate-800 focus:bg-white focus:border-blue-500 cursor-pointer"
+                >
+                  {accessibleProjects
+                    .filter((p) => p.code !== COMMON_PROJECT_CODE)
+                    .map((p) => (
+                      <option key={p.code} value={p.code}>
+                        [{p.code}] {p.name}
+                      </option>
+                    ))}
+                </select>
               </div>
 
               <div>

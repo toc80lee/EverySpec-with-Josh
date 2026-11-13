@@ -4,7 +4,7 @@ export function generateSpecMarkdown(spec: ProgramSpec): string {
   return `# [SAP 프로그램 개발 사양서] ${spec.title} (${spec.program_id})
 
 ## 1. 문서 관리 정보
-- **프로젝트명**: SAP ERP 고도화 및 운영 개발
+- **프로젝트**: \`${spec.project_code || 'TEMP'}\`
 - **프로그램 ID**: \`${spec.program_id}\`
 - **트랜잭션 코드 (T-Code)**: \`${spec.tcode}\`
 - **모듈 (Module)**: ${spec.module}

@@ -100,6 +100,7 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBoxModal, setShowBoxModal] = useState(false);
   const [showRadioGroupModal, setShowRadioGroupModal] = useState(false);
+  const [tableCopied, setTableCopied] = useState(false);
 
   const [searchHelpTarget, setSearchHelpTarget] = useState<{
     type: 'modal' | 'row';
@@ -192,6 +193,10 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && selectedRange) {
+      setSelectedRange(null);
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
       const activeEl = document.activeElement;
       if (
@@ -207,6 +212,8 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
         const tsv = extractCellRangeTsv(selectedRange, getSelectionCellValue);
         if (tsv) {
           copyTsvToClipboard(tsv);
+          setTableCopied(true);
+          setTimeout(() => setTableCopied(false), 1500);
         }
       }
     }
@@ -378,6 +385,8 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
   const handleCopyTable = async () => {
     const tsv = exportSelectionParamsToTsv(spec.selection_params);
     await copyTsvToClipboard(tsv);
+    setTableCopied(true);
+    setTimeout(() => setTableCopied(false), 1500);
   };
 
   const handleCellKeyDown = (e: React.KeyboardEvent, rowIndex: number, colKey: string) => {
@@ -1576,11 +1585,19 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
             type="button"
             onClick={handleCopyTable}
             disabled={spec.selection_params.length === 0}
-            className="p-1.5 text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md transition-colors shadow-2xs cursor-pointer disabled:opacity-40 flex items-center justify-center"
-            title="Copy Table to Excel"
+            className={`p-1.5 border rounded-md transition-colors shadow-2xs cursor-pointer disabled:opacity-40 flex items-center justify-center ${
+              tableCopied
+                ? 'text-emerald-700 bg-emerald-50 border-emerald-300'
+                : 'text-slate-700 bg-white hover:bg-slate-100 border-slate-300'
+            }`}
+            title={tableCopied ? 'Copied to Clipboard!' : 'Copy Table to Excel'}
             aria-label="Copy Table to Excel"
           >
-            <Copy className="w-4 h-4 text-slate-500" />
+            {tableCopied ? (
+              <Check className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <Copy className="w-4 h-4 text-slate-500" />
+            )}
           </button>
           {onOpenAiExtract && (
             <button

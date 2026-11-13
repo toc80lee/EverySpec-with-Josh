@@ -58,6 +58,7 @@ export const MarkdownFieldEditor: React.FC<MarkdownFieldEditorProps> = ({
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const latestValueRef = useRef(value);
   const onChangeRef = useRef(onChange);
@@ -105,10 +106,60 @@ export const MarkdownFieldEditor: React.FC<MarkdownFieldEditorProps> = ({
     }
   };
 
-  const insertSyntax = (before: string, after: string = '') => {
+  const insertSyntax = (before: string, after: string = '', defaultInner: string = '') => {
     if (mode === 'preview') return;
+    const el = textareaRef.current;
     const text = value || '';
-    onChange(`${text}\n${before}${after}`);
+
+    if (!el) {
+      onChange(`${text}${text && !text.endsWith('\n') ? '\n' : ''}${before}${defaultInner}${after}`);
+      return;
+    }
+
+    const start = el.selectionStart ?? text.length;
+    const end = el.selectionEnd ?? text.length;
+    const selected = text.slice(start, end);
+    const inner = selected || defaultInner;
+    const insertion = `${before}${inner}${after}`;
+    const updated = `${text.slice(0, start)}${insertion}${text.slice(end)}`;
+    onChange(updated);
+
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      const cursorStart = start + before.length;
+      const cursorEnd = cursorStart + inner.length;
+      textareaRef.current.setSelectionRange(cursorStart, cursorEnd);
+    });
+  };
+
+  const switchToEditAndFocus = () => {
+    setMode('edit');
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  };
+
+  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      insertSyntax('**', '**', '굵은 텍스트');
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+      e.preventDefault();
+      setMode('preview');
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const el = e.currentTarget;
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const text = value || '';
+      const next = `${text.slice(0, start)}  ${text.slice(end)}`;
+      onChange(next);
+      requestAnimationFrame(() => {
+        if (!textareaRef.current) return;
+        textareaRef.current.setSelectionRange(start + 2, start + 2);
+      });
+    }
   };
 
   // Simple Markdown renderer without heavy external parser dependencies
@@ -245,52 +296,52 @@ export const MarkdownFieldEditor: React.FC<MarkdownFieldEditorProps> = ({
           <button
             type="button"
             disabled={mode === 'preview'}
-            onClick={() => insertSyntax('**굵은 텍스트**')}
+            onClick={() => insertSyntax('**', '**', '굵은 텍스트')}
             className={`p-1 rounded transition-colors ${
               mode === 'preview'
                 ? 'opacity-30 cursor-not-allowed text-slate-400'
                 : 'hover:bg-slate-200 text-slate-700 cursor-pointer'
             }`}
-            title={mode === 'preview' ? '미리보기 상태에서는 서식을 추가할 수 없습니다 (편집 모드로 전환하세요)' : 'Bold (**text**)'}
+            title={mode === 'preview' ? 'Switch to Edit mode to format text' : 'Bold (Ctrl+B)'}
           >
             <Bold className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             disabled={mode === 'preview'}
-            onClick={() => insertSyntax('- 목록 항목')}
+            onClick={() => insertSyntax('- ', '', '목록 항목')}
             className={`p-1 rounded transition-colors ${
               mode === 'preview'
                 ? 'opacity-30 cursor-not-allowed text-slate-400'
                 : 'hover:bg-slate-200 text-slate-700 cursor-pointer'
             }`}
-            title={mode === 'preview' ? '미리보기 상태에서는 서식을 추가할 수 없습니다 (편집 모드로 전환하세요)' : 'Unordered list (- item)'}
+            title={mode === 'preview' ? 'Switch to Edit mode to format text' : 'Bullet List (- item)'}
           >
             <List className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             disabled={mode === 'preview'}
-            onClick={() => insertSyntax('1. 순서 목록')}
+            onClick={() => insertSyntax('1. ', '', '순서 목록')}
             className={`p-1 rounded transition-colors ${
               mode === 'preview'
                 ? 'opacity-30 cursor-not-allowed text-slate-400'
                 : 'hover:bg-slate-200 text-slate-700 cursor-pointer'
             }`}
-            title={mode === 'preview' ? '미리보기 상태에서는 서식을 추가할 수 없습니다 (편집 모드로 전환하세요)' : 'Ordered list (1. item)'}
+            title={mode === 'preview' ? 'Switch to Edit mode to format text' : 'Numbered List (1. item)'}
           >
             <ListOrdered className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             disabled={mode === 'preview'}
-            onClick={() => insertSyntax('`코드`')}
+            onClick={() => insertSyntax('`', '`', '코드')}
             className={`p-1 rounded transition-colors ${
               mode === 'preview'
                 ? 'opacity-30 cursor-not-allowed text-slate-400'
                 : 'hover:bg-slate-200 text-slate-700 cursor-pointer'
             }`}
-            title={mode === 'preview' ? '미리보기 상태에서는 서식을 추가할 수 없습니다 (편집 모드로 전환하세요)' : 'Inline Code (`code`)'}
+            title={mode === 'preview' ? 'Switch to Edit mode to format text' : 'Inline Code (`code`)'}
           >
             <Code className="w-3.5 h-3.5" />
           </button>
@@ -353,8 +404,11 @@ export const MarkdownFieldEditor: React.FC<MarkdownFieldEditorProps> = ({
           {/* 3. Single Display <-> Edit Toggle Button (Icon-only) */}
           <button
             type="button"
-            onClick={() => setMode((prev) => (prev === 'preview' ? 'edit' : 'preview'))}
-            title="Display ↔ Edit"
+            onClick={() => {
+              if (mode === 'preview') switchToEditAndFocus();
+              else setMode('preview');
+            }}
+            title="Display ↔ Edit (Double-click preview to edit)"
             aria-label="Display ↔ Edit"
             className={`p-1.5 rounded flex items-center justify-center cursor-pointer transition-all shadow-2xs ${
               mode === 'edit'
@@ -423,15 +477,22 @@ export const MarkdownFieldEditor: React.FC<MarkdownFieldEditorProps> = ({
       <div className="bg-white p-2.5">
         {mode === 'edit' ? (
           <textarea
+            ref={textareaRef}
             rows={rows}
             value={value}
             onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleTextareaKeyDown}
             className="w-full bg-white text-slate-800 text-xs leading-relaxed focus:outline-none border-none resize-y selection:bg-blue-100"
             style={{ minHeight }}
             placeholder={placeholder}
           />
         ) : (
-          <div className="min-h-[100px] overflow-auto p-1 bg-white" style={{ minHeight }}>
+          <div
+            onDoubleClick={switchToEditAndFocus}
+            title="Double-click to edit Markdown"
+            className="min-h-[100px] overflow-auto p-1 bg-white cursor-text rounded hover:bg-slate-50/40 transition-colors"
+            style={{ minHeight }}
+          >
             {renderSimpleMarkdown(value)}
           </div>
         )}

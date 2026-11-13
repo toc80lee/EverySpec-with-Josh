@@ -18,9 +18,12 @@ import {
   Sliders,
   Table,
   FileDown,
+  FileSpreadsheet,
+  Loader2,
 } from 'lucide-react';
 import { ProgramSpec, AlvField, TestCase } from '../types/sap';
 import { generateSpecMarkdown, downloadFile, exportFieldCatalogCsv } from '../utils/specExport';
+import { exportSpecificationDocx, exportSpecificationXlsx } from '../utils/officeExport';
 import { InteractiveDataFlowCanvas } from './InteractiveDataFlowCanvas';
 import {
   MermaidFlowChartSvg,
@@ -51,6 +54,7 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
   const [includeItemGrid, setIncludeItemGrid] = useState(true);
   const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
 
   // Pagination & Page-flipping state
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -247,6 +251,36 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
     downloadFile(`${spec.program_id}_FIELDCATALOG.csv`, '\uFEFF' + csv, 'text/csv;charset=utf-8;');
   };
 
+  // Download Word (.docx) Specification
+  const handleDownloadDocx = async () => {
+    if (isExportingDocx) return;
+    setIsExportingDocx(true);
+    try {
+      const filename = await exportSpecificationDocx(spec);
+      setCopiedNotice(`Word (.docx) 사양서가 다운로드되었습니다: ${filename}`);
+      setTimeout(() => setCopiedNotice(null), 4000);
+    } catch (err) {
+      console.error('DOCX export error:', err);
+      setCopiedNotice('Word (.docx) 생성 중 오류가 발생했습니다.');
+      setTimeout(() => setCopiedNotice(null), 4000);
+    } finally {
+      setIsExportingDocx(false);
+    }
+  };
+
+  // Download Multi-Sheet Excel (.xlsx) Deliverable
+  const handleDownloadXlsx = () => {
+    try {
+      const filename = exportSpecificationXlsx(spec);
+      setCopiedNotice(`다중 시트 Excel (.xlsx) 파일이 다운로드되었습니다: ${filename}`);
+      setTimeout(() => setCopiedNotice(null), 4000);
+    } catch (err) {
+      console.error('XLSX export error:', err);
+      setCopiedNotice('Excel (.xlsx) 생성 중 오류가 발생했습니다.');
+      setTimeout(() => setCopiedNotice(null), 4000);
+    }
+  };
+
   // Export JSON
   const handleExportJson = () => {
     const jsonStr = JSON.stringify(spec, null, 2);
@@ -417,21 +451,46 @@ export const SpecDocumentView: React.FC<SpecDocumentViewProps> = ({
             <span>인쇄 (Print)</span>
           </button>
 
+          {/* Word (.docx) Export */}
+          <button
+            onClick={handleDownloadDocx}
+            disabled={isExportingDocx}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-sky-950/50 hover:bg-sky-900/60 text-sky-200 rounded text-xs font-medium border border-sky-700/50 transition-colors cursor-pointer disabled:opacity-50"
+            title="Export Word Specification (.docx)"
+          >
+            {isExportingDocx ? (
+              <Loader2 className="w-3.5 h-3.5 text-sky-300 animate-spin" />
+            ) : (
+              <FileText className="w-3.5 h-3.5 text-sky-300" />
+            )}
+            <span className="hidden sm:inline">.docx</span>
+          </button>
+
+          {/* Multi-Sheet Excel (.xlsx) Export */}
+          <button
+            onClick={handleDownloadXlsx}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-teal-950/50 hover:bg-teal-900/60 text-teal-200 rounded text-xs font-medium border border-teal-700/50 transition-colors cursor-pointer"
+            title="Export Multi-Sheet Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-teal-300" />
+            <span className="hidden sm:inline">.xlsx</span>
+          </button>
+
           {/* Markdown Download */}
           <button
             onClick={handleDownloadMarkdown}
             className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
-            title="Markdown 포맷 사양서 다운로드"
+            title="Export Markdown (.md)"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden sm:inline">Markdown</span>
+            <span className="hidden sm:inline">MD</span>
           </button>
 
           {/* Field Catalog CSV */}
           <button
             onClick={handleDownloadCsv}
             className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 rounded text-xs font-medium border border-emerald-700/50 transition-colors cursor-pointer"
-            title="필드 카탈로그 CSV 다운로드"
+            title="Export Field Catalog (.csv)"
           >
             <Download className="w-3.5 h-3.5 text-emerald-400" />
             <span className="hidden sm:inline">CSV</span>

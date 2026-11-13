@@ -15,6 +15,7 @@ import { SAMPLE_SPECS } from './sampleSpecs';
 const singleAlvTemplateSpec: ProgramSpec = {
   ...SAMPLE_SPECS[0],
   id: 'tmpl-single-alv',
+  project_code: 'COMMON',
   sample_type: '01',
   program_id: 'ZR_SALES_ORDER_ALV',
   tcode: 'ZSD01',
@@ -34,6 +35,7 @@ const singleAlvTemplateSpec: ProgramSpec = {
 const headerDetailTemplateSpec: ProgramSpec = {
   ...SAMPLE_SPECS[2], // Sample 02 in SAMPLE_SPECS is Master-Detail
   id: 'tmpl-header-detail',
+  project_code: 'COMMON',
   sample_type: '02',
   program_id: 'ZR_ORDER_MASTER_DETAIL',
   tcode: 'ZSD02',
@@ -52,6 +54,7 @@ const headerDetailTemplateSpec: ProgramSpec = {
 // 3. OData-based Service Template (SAP Gateway / RAP / Fiori)
 const oDataTemplateSpec: ProgramSpec = {
   id: 'tmpl-odata-service',
+  project_code: 'COMMON',
   sample_type: '04',
   program_id: 'ZGW_SALES_ORDER_SRV',
   tcode: 'IWFND/MAINT_SERVICE',
@@ -522,6 +525,7 @@ Defines entity sets (SalesOrderHeaderSet, SalesOrderItemSet), navigation associa
 // 4. Interface & BAPI Batch Processing Template (Mass Upload)
 const bapiBatchTemplateSpec: ProgramSpec = {
   id: 'tmpl-bapi-batch',
+  project_code: 'COMMON',
   sample_type: '01',
   program_id: 'ZR_MM_PO_BATCH_UPLOAD',
   tcode: 'ZMM02',
@@ -826,6 +830,7 @@ const bapiBatchTemplateSpec: ProgramSpec = {
 // 5. Financial G/L Reconciliation ALV Template
 const fiReconciliationTemplateSpec: ProgramSpec = {
   id: 'tmpl-fi-reconciliation',
+  project_code: 'COMMON',
   sample_type: '01',
   program_id: 'ZFI_GL_RECON_REP',
   tcode: 'ZFIR01',

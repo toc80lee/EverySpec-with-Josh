@@ -5,6 +5,7 @@ export const SAMPLE_SPECS: ProgramSpec[] = [
   // 0. Sample 01: Single ALV Grid Report (Default)
   {
     id: 'spec-sample-01-alv',
+    project_code: 'COMMON',
     sample_type: '01',
     program_id: 'ZRALV0010',
     tcode: 'ZRALV0010',
@@ -239,6 +240,7 @@ export const SAMPLE_SPECS: ProgramSpec[] = [
   // 1. Sample Type 03: Sample ALV Tree (Tree ALV Grid: Left Tree + Right Grid)
   {
     id: 'spec-alv-tree-flight',
+    project_code: 'COMMON',
     sample_type: '03',
     program_id: 'ZRALV0030',
     tcode: 'ZRALV0030',
@@ -577,6 +579,7 @@ export const SAMPLE_SPECS: ProgramSpec[] = [
   // 1. SD/CO: Sales Order Monitoring Report (Header-Item ALV Grid)
   {
     id: 'spec-sd-order-monitor',
+    project_code: 'COMMON',
     sample_type: '02',
     program_id: 'ZRALV0020',
     tcode: 'ZRALV0020',
@@ -1094,21 +1097,22 @@ export const SAMPLE_SPECS: ProgramSpec[] = [
   // 2. MM: Purchase Order Status
   {
     id: 'spec-mm-po-status',
+    project_code: 'TEMP',
     program_id: 'ZR_MM_PO_STATUS',
     tcode: 'ZMM002',
     title: '구매 발주 및 자재 입고 진행 현황',
     module: 'MM',
-    author: '박자재 수석연구원',
+    author: '박자재 수석',
     created_date: '2026-10-18',
     target_sap_release: 'SAP S/4HANA 2023',
     program_type: 'REPORT',
-    is_system: true,
+    is_system: false,
     change_history: [
       {
         id: 'h-mm-1',
         version: 'v1.0',
         changed_at: '2026-10-18 11:00:00',
-        author: '박자재 수석연구원',
+        author: '박자재 수석',
         comment: '구매 발주 및 자재 입고 진행 현황 사양서 초기 등록',
       },
     ],
@@ -1258,6 +1262,7 @@ export const SAMPLE_SPECS: ProgramSpec[] = [
   // 4. Sample 04: Pivot Browser (SAP PIVB / Dynamic Multi-Dimensional Aggregation)
   {
     id: 'spec-sample-04-pivot',
+    project_code: 'COMMON',
     sample_type: '04',
     program_id: 'ZRALV0040',
     tcode: 'ZRALV0040',

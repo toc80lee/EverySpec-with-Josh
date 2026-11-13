@@ -91,6 +91,10 @@ export const AiSpecCopilotModal: React.FC<AiSpecCopilotModalProps> = ({
     setIsGenerating(true);
     setErrorMsg(null);
     try {
+      const targetProjectCode =
+        currentSpec.project_code && currentSpec.project_code !== 'COMMON'
+          ? currentSpec.project_code
+          : 'TEMP';
       const res = await requestAiFullSpecDraft({
         requirementPrompt: requirementPrompt.trim(),
         module: selectedModule,
@@ -98,6 +102,7 @@ export const AiSpecCopilotModal: React.FC<AiSpecCopilotModalProps> = ({
         targetSapRelease: currentSpec.target_sap_release || 'SAP S/4HANA 2023 / ECC 6.0',
         programId: programId.trim() || undefined,
         tcode: tcode.trim() || undefined,
+        projectCode: targetProjectCode,
       });
       setDraftResult(res);
     } catch (err: any) {
@@ -111,9 +116,16 @@ export const AiSpecCopilotModal: React.FC<AiSpecCopilotModalProps> = ({
     if (!draftResult?.spec) return;
     const d = draftResult.spec;
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const targetProjectCode =
+      currentSpec.project_code && currentSpec.project_code !== 'COMMON'
+        ? currentSpec.project_code
+        : d.project_code && d.project_code !== 'COMMON'
+        ? d.project_code
+        : 'TEMP';
     const mergedSpec: ProgramSpec = {
       ...d,
       id: currentSpec.id,
+      project_code: targetProjectCode,
       author: currentSpec.author || d.author,
       toolbar_buttons:
         d.toolbar_buttons && d.toolbar_buttons.length > 0

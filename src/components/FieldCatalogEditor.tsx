@@ -59,6 +59,7 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
 }) => {
   const [showSearchHelp, setShowSearchHelp] = useState(false);
   const [editingFieldIndex, setEditingFieldIndex] = useState<number | null>(null);
+  const [tableCopied, setTableCopied] = useState(false);
   const [colorHelpTarget, setColorHelpTarget] = useState<{
     index: number;
     fieldName: string;
@@ -174,8 +175,12 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
     });
   };
 
-  // Keyboard shortcut listener for Ctrl+C (Copy selected cells as TSV)
+  // Keyboard shortcut listener for Escape & Ctrl+C (Copy selected cells as TSV)
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && selectedRange) {
+      setSelectedRange(null);
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
       const activeEl = document.activeElement;
       if (
@@ -192,6 +197,8 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
         const tsv = extractCellRangeTsv(selectedRange, getFcatCellValue);
         if (tsv) {
           copyTsvToClipboard(tsv);
+          setTableCopied(true);
+          setTimeout(() => setTableCopied(false), 1500);
         }
       }
     }
@@ -350,6 +357,8 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
   const handleCopyTable = async () => {
     const tsv = exportFieldCatalogToTsv(spec.field_catalog);
     await copyTsvToClipboard(tsv);
+    setTableCopied(true);
+    setTimeout(() => setTableCopied(false), 1500);
   };
 
   const handleCellKeyDown = (e: React.KeyboardEvent, rowIndex: number, colKey: string) => {
@@ -596,11 +605,15 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
             type="button"
             onClick={handleCopyTable}
             disabled={spec.field_catalog.length === 0}
-            title="Copy Table to Excel"
+            title={tableCopied ? 'Copied to Clipboard!' : 'Copy Table to Excel'}
             aria-label="Copy Table to Excel"
-            className="p-1.5 text-slate-700 bg-white hover:bg-slate-100 hover:text-blue-700 border border-slate-300 rounded-md transition-colors shadow-2xs cursor-pointer disabled:opacity-40"
+            className={`p-1.5 border rounded-md transition-colors shadow-2xs cursor-pointer disabled:opacity-40 ${
+              tableCopied
+                ? 'text-emerald-700 bg-emerald-50 border-emerald-300'
+                : 'text-slate-700 bg-white hover:bg-slate-100 hover:text-blue-700 border-slate-300'
+            }`}
           >
-            <Copy className="w-4 h-4" />
+            {tableCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
           </button>
 
           {onOpenAiExtract && (

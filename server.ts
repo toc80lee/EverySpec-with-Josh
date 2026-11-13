@@ -702,6 +702,470 @@ Extract missing Selection Screen items and missing ALV Field Catalog columns.`;
   }
 });
 
+function detectSapModuleFromText(text: string): 'SD' | 'MM' | 'FI' | 'CO' | 'PP' | 'HR' | 'QM' | 'PM' | 'BC' {
+  const upper = (text || '').toUpperCase();
+  if (
+    upper.includes('원가') ||
+    upper.includes('코스트') ||
+    upper.includes('예산') ||
+    upper.includes('KOSTL') ||
+    upper.includes('CSKS') ||
+    upper.includes('COEP') ||
+    upper.includes('손익') ||
+    upper.includes('CO ')
+  ) {
+    return 'CO';
+  }
+  if (
+    upper.includes('구매') ||
+    upper.includes('발주') ||
+    upper.includes('입고') ||
+    upper.includes('자재') ||
+    upper.includes('EKKO') ||
+    upper.includes('EKPO') ||
+    upper.includes('MIGO') ||
+    upper.includes('MM ')
+  ) {
+    return 'MM';
+  }
+  if (
+    upper.includes('회계') ||
+    upper.includes('전표') ||
+    upper.includes('미결') ||
+    upper.includes('채권') ||
+    upper.includes('채무') ||
+    upper.includes('결산') ||
+    upper.includes('BKPF') ||
+    upper.includes('BSEG') ||
+    upper.includes('ACDOCA') ||
+    upper.includes('FI ')
+  ) {
+    return 'FI';
+  }
+  if (
+    upper.includes('생산') ||
+    upper.includes('작업지시') ||
+    upper.includes('공정') ||
+    upper.includes('BOM') ||
+    upper.includes('AFKO') ||
+    upper.includes('PP ')
+  ) {
+    return 'PP';
+  }
+  if (upper.includes('품질') || upper.includes('검사') || upper.includes('QALS') || upper.includes('QM ')) {
+    return 'QM';
+  }
+  if (upper.includes('설비') || upper.includes('보전') || upper.includes('PM ')) {
+    return 'PM';
+  }
+  if (upper.includes('인사') || upper.includes('급여') || upper.includes('근태') || upper.includes('HR ')) {
+    return 'HR';
+  }
+  return 'SD';
+}
+
+function buildMeetingMinutesFallback(opts: {
+  rawTranscript: string;
+  supplementalNotes?: string;
+  existingMinutes?: string;
+  projectName?: string;
+  mode?: string;
+}) {
+  const combined = `${opts.rawTranscript || ''}\n${opts.supplementalNotes || ''}`.trim();
+  const mod = detectSapModuleFromText(combined);
+  const snippet = (opts.rawTranscript || opts.supplementalNotes || '').split('\n').filter(Boolean);
+  const firstLine = snippet[0]?.replace(/^\[[^\]]+\]\s*/, '').slice(0, 42) || `${mod} 신규 SAP 프로그램 설계 회의`;
+
+  const bulletLines = snippet
+    .slice(0, 8)
+    .map((line) => `- ${line.trim()}`)
+    .join('\n');
+
+  const supplementSection = opts.supplementalNotes?.trim()
+    ? `\n\n### 보충 논의 및 추가 반영 사항\n${opts.supplementalNotes
+        .split('\n')
+        .filter((l) => l.trim())
+        .map((l) => `- ${l.trim()}`)
+        .join('\n')}`
+    : '';
+
+  const minutesMarkdown =
+    opts.mode === 'enrich' && opts.existingMinutes?.trim()
+      ? `${opts.existingMinutes.trim()}${supplementSection}`
+      : `## 1. 회의 개요
+- **대상 프로젝트**: ${opts.projectName || 'SAP 프로젝트'}
+- **추정 SAP 모듈**: \`${mod}\`
+- **회의 목적**: 현업 요구사항을 기반으로 프로그램 유형(COMMON 샘플 기준) 및 ALV 사양서 핵심 구조 합의
+
+## 2. 주요 논의 및 요구사항 요약
+${bulletLines || '- 회의 중 입력된 요구사항을 기반으로 화면 및 데이터 추출 기준 정의'}
+
+## 3. 선택화면(Selection Screen) 및 출력(ALV) 초안
+- **주요 조회 조건**: 회사코드/조직코드(필수), 기준일자 범위, 상태/유형별 필터 옵션
+- **ALV 출력 및 상호작용**: 상태 신호등(\`ZICON\`), 주요 전표번호 핫스팟 드릴다운, 금액/수량 합계(\`DO_SUM\`) 및 업무 처리용 커스텀 툴바 버튼 구성
+
+## 4. 결정 사항 및 후속 확인 과제 (Open Items)
+- 회의록 검토·보충 완료 후 적합한 **COMMON 표준 샘플 유형(01~04)**을 선택하여 기능사양서 초안을 자동 구성함.${supplementSection}`;
+
+  return {
+    title: firstLine,
+    detectedModule: mod,
+    minutesMarkdown,
+  };
+}
+
+function buildSampleRecommendationFallback(opts: {
+  minutesMarkdown: string;
+  existingProgramIds?: string[];
+}) {
+  const txt = opts.minutesMarkdown || '';
+  const upper = txt.toUpperCase();
+  const mod = detectSapModuleFromText(txt);
+
+  let recommendedSampleType: '01' | '02' | '03' | '04' = '01';
+  let confidenceReason =
+    '단일 기준의 조회·모니터링 및 선택 행 일괄 처리(툴바) 중심 요구사항에 가장 적합한 Single ALV Grid(01) 구조를 추천합니다.';
+
+  if (
+    txt.includes('계층') ||
+    txt.includes('트리') ||
+    txt.includes('상위') ||
+    txt.includes('하위') ||
+    txt.includes('조직도') ||
+    upper.includes('TREE') ||
+    upper.includes('WBS') ||
+    upper.includes('BOM')
+  ) {
+    recommendedSampleType = '03';
+    confidenceReason =
+      '조직·계층·상하위 구조(Tree/WBS/BOM 등) 전개 및 노드별 소계 집계가 논의되어 Tree ALV Grid(03 · ZRALV0030)가 가장 적합합니다.';
+  } else if (
+    txt.includes('피벗') ||
+    txt.includes('교차') ||
+    txt.includes('월별') ||
+    txt.includes('다차원') ||
+    txt.includes('매트릭스') ||
+    upper.includes('PIVOT') ||
+    upper.includes('CDS') ||
+    upper.includes('ACDOCA')
+  ) {
+    recommendedSampleType = '04';
+    confidenceReason =
+      '다차원 축(기간별·조직별·계정별) 교차 집계 및 동적 피벗 분석 요구사항이 포함되어 Pivot Browser(04 · ZRALV0040)가 가장 적합합니다.';
+  } else if (
+    txt.includes('헤더') ||
+    txt.includes('품목') ||
+    txt.includes('상세') ||
+    txt.includes('아이템') ||
+    txt.includes('상단') ||
+    txt.includes('하단') ||
+    upper.includes('MASTER') ||
+    upper.includes('DETAIL') ||
+    upper.includes('ITEM')
+  ) {
+    recommendedSampleType = '02';
+    confidenceReason =
+      '상단 헤더 목록 선택 시 하단에 연계 품목/상세 내역을 동시 조회하는 Master-Detail 2-Grid ALV(02 · ZRALV0020) 구조가 적합합니다.';
+  }
+
+  const existingSet = new Set(
+    (opts.existingProgramIds || []).map((id) => String(id || '').trim().toUpperCase())
+  );
+  let seq = 10;
+  let suggestedProgramId = `ZR_${mod}_MON_${String(seq).padStart(2, '0')}`;
+  while (existingSet.has(suggestedProgramId)) {
+    seq += 10;
+    suggestedProgramId = `ZR_${mod}_MON_${String(seq).padStart(2, '0')}`;
+  }
+  const suggestedTcode = `Z${mod}${String(seq).padStart(3, '0')}`.slice(0, 10);
+
+  const firstHeadingLine =
+    txt
+      .split('\n')
+      .map((l) => l.replace(/^#+\s*/, '').trim())
+      .find((l) => l && !l.includes('회의 개요') && !l.startsWith('**')) || '';
+
+  return {
+    recommendedSampleType,
+    confidenceReason,
+    suggestedModule: mod,
+    suggestedProgramId,
+    suggestedTcode,
+    suggestedTitle: firstHeadingLine.slice(0, 44) || `${mod} 업무 현황 조회 및 처리 프로그램`,
+    requirementPrompt: txt.slice(0, 2200),
+    alternatives: [
+      {
+        sampleType: '01',
+        sampleProgramId: 'ZRALV0010',
+        label: 'Single ALV Grid',
+        fitSummary: '단일 목록 조회, 상태 신호등, 핫스팟 드릴다운, 커스텀 툴바 일괄 처리에 적합',
+      },
+      {
+        sampleType: '02',
+        sampleProgramId: 'ZRALV0020',
+        label: 'Master-Detail 2-Grid ALV',
+        fitSummary: '헤더(전표) 클릭 시 하단 Item(품목) 그리드가 실시간 연동되는 상하 분할 구조',
+      },
+      {
+        sampleType: '03',
+        sampleProgramId: 'ZRALV0030',
+        label: 'Tree ALV Grid',
+        fitSummary: '조직·원가·BOM·WBS 등 상하위 계층 트리 펼침/접기 및 노드 집계 구조',
+      },
+      {
+        sampleType: '04',
+        sampleProgramId: 'ZRALV0040',
+        label: 'Multi-Dimensional Pivot Browser',
+        fitSummary: 'CDS View / ACDOCA 기반 행·열 다차원 피벗 및 기간별 교차 집계 분석',
+      },
+    ],
+  };
+}
+
+// API endpoint: Step 1 -> Step 2 (Summarize or enrich SAP meeting minutes from recording/notes)
+app.post('/api/summarize-meeting-minutes', async (req, res) => {
+  try {
+    const {
+      rawTranscript = '',
+      supplementalNotes = '',
+      existingMinutes = '',
+      projectName = 'SAP 프로젝트',
+      targetRelease = 'SAP S/4HANA 2023',
+      mode = 'create',
+    } = req.body || {};
+
+    const combinedInput = `${rawTranscript}\n${supplementalNotes}\n${existingMinutes}`.trim();
+    if (!combinedInput) {
+      return res.status(400).json({ error: '회의 녹음 내용 또는 메모 텍스트가 비어 있습니다.' });
+    }
+
+    const systemPrompt = `You are a Principal SAP ERP Business Analyst & Solution Architect.
+Your job is to convert raw meeting transcripts/notes (in Korean or mixed Korean/SAP terms) into clean, structured, actionable SAP Program Design Meeting Minutes in Korean Markdown.
+
+Return ONLY valid JSON with:
+{
+  "title": "concise Korean meeting/program topic title (max 45 chars)",
+  "detectedModule": "SD" | "MM" | "FI" | "CO" | "PP" | "HR" | "QM" | "PM" | "BC",
+  "minutesMarkdown": "structured Korean markdown"
+}
+
+Markdown structure guidelines:
+## 1. 회의 개요
+- 논의 주제, 대상 SAP 모듈, 업무 목적 요약
+## 2. 핵심 업무 요구사항
+- 회의에서 도출된 구체적 업무 규칙 및 데이터 처리 기준
+## 3. 화면 및 조회 조건(Selection Screen) 요구사항
+- 사용자가 언급한 검색 조건(회사코드, 플랜트, 기간, 거래처, 라디오버튼/체크박스 등)
+## 4. 출력 레이아웃(ALV) 및 인터랙션 요구사항
+- 필요한 컬럼, 합계/소계, 신호등 조건, 드릴다운 T-Code, 툴바 버튼, 계층/헤더-품목/피벗 여부
+## 5. 결정 사항 및 확인 필요 사항 (Open Items)
+- 확정된 기준 및 추가 확인이 필요한 항목
+
+If mode is "enrich", preserve all valid points from existingMinutes and seamlessly integrate supplementalNotes into the appropriate sections (do not discard existing decisions unless contradicted).`;
+
+    const userPrompt = `Project: ${projectName} (${targetRelease})
+Mode: ${mode}
+
+[Raw Meeting Transcript / Notes]
+${rawTranscript || '(없음)'}
+
+[Existing Minutes (if enriching)]
+${existingMinutes || '(없음)'}
+
+[Supplemental Voice / Text Notes]
+${supplementalNotes || '(없음)'}
+
+Generate the structured JSON output.`;
+
+    let parsed: any = null;
+    let source: 'ai' | 'fallback' = 'ai';
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: 'application/json',
+        },
+      });
+      parsed = JSON.parse(response.text?.trim() || '{}');
+    } catch (err: any) {
+      console.warn('Gemini summarize-meeting-minutes issue, using fallback:', err?.message);
+      source = 'fallback';
+    }
+
+    const fallback = buildMeetingMinutesFallback({
+      rawTranscript,
+      supplementalNotes,
+      existingMinutes,
+      projectName,
+      mode,
+    });
+
+    const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+    const detectedModule = validModules.includes(String(parsed?.detectedModule || '').toUpperCase())
+      ? String(parsed.detectedModule).toUpperCase()
+      : fallback.detectedModule;
+
+    const minutesMarkdown =
+      typeof parsed?.minutesMarkdown === 'string' && parsed.minutesMarkdown.trim().length > 20
+        ? parsed.minutesMarkdown.trim()
+        : fallback.minutesMarkdown;
+
+    const title =
+      typeof parsed?.title === 'string' && parsed.title.trim()
+        ? parsed.title.trim().slice(0, 60)
+        : fallback.title;
+
+    return res.json({
+      title,
+      detectedModule,
+      minutesMarkdown,
+      source: typeof parsed?.minutesMarkdown === 'string' && parsed.minutesMarkdown.trim() ? source : 'fallback',
+    });
+  } catch (error: any) {
+    console.error('Summarize meeting minutes error:', error);
+    return res.status(500).json({
+      error: error?.message || '회의록 요약 생성 중 오류가 발생했습니다.',
+    });
+  }
+});
+
+// API endpoint: Step 2 -> Step 3 (Recommend best COMMON sample type 01~04 + Program ID / T-Code from minutes)
+app.post('/api/recommend-sample-from-minutes', async (req, res) => {
+  try {
+    const {
+      minutesMarkdown = '',
+      projectName = 'SAP 프로젝트',
+      existingProgramIds = [],
+    } = req.body || {};
+
+    if (!minutesMarkdown || typeof minutesMarkdown !== 'string' || !minutesMarkdown.trim()) {
+      return res.status(400).json({ error: '분석할 회의록 본문이 비어 있습니다.' });
+    }
+
+    const systemPrompt = `You are a Principal SAP ABAP Architect.
+Analyze the finalized SAP Meeting Minutes and recommend the BEST matching COMMON Sample Program Type among the 4 standard templates:
+- "01" (ZRALV0010): Single ALV Grid — best for single-table/list monitoring, traffic lights, hotspot drilldown, mass action toolbar buttons.
+- "02" (ZRALV0020): Master-Detail 2-Grid ALV — best when users click a Header row (e.g. Sales Order, PO, Invoice) to view/sync Item details in a lower grid.
+- "03" (ZRALV0030): Tree ALV Grid — best for hierarchical structures (Cost Center Hierarchy, WBS, BOM, Org Tree, Account Group) with expand/collapse and node subtotals.
+- "04" (ZRALV0040): Multi-Dimensional Pivot Browser — best for cross-tab analytics, period/month columns, multi-axis aggregation, ACDOCA/CDS analytical views.
+
+Also suggest a compliant Customer Namespace Program ID (Z*, uppercase, max 20 chars, NOT in existingProgramIds), a T-Code (Z*, uppercase, max 10 chars), a concise Korean program title, the SAP module, and a comprehensive requirementPrompt summarizing all technical & functional requirements from the minutes so the next step can generate the full spec.
+
+Return ONLY valid JSON:
+{
+  "recommendedSampleType": "01" | "02" | "03" | "04",
+  "confidenceReason": "2~3 sentences in Korean explaining WHY this sample type fits best",
+  "suggestedModule": "SD" | "MM" | "FI" | "CO" | "PP" | "HR" | "QM" | "PM" | "BC",
+  "suggestedProgramId": "ZR_...",
+  "suggestedTcode": "Z...",
+  "suggestedTitle": "concise Korean program title",
+  "requirementPrompt": "detailed synthesized prompt for full spec generation",
+  "alternatives": [
+    { "sampleType": "01", "sampleProgramId": "ZRALV0010", "label": "Single ALV Grid", "fitSummary": "short Korean fit note for this meeting" },
+    { "sampleType": "02", "sampleProgramId": "ZRALV0020", "label": "Master-Detail 2-Grid ALV", "fitSummary": "..." },
+    { "sampleType": "03", "sampleProgramId": "ZRALV0030", "label": "Tree ALV Grid", "fitSummary": "..." },
+    { "sampleType": "04", "sampleProgramId": "ZRALV0040", "label": "Multi-Dimensional Pivot Browser", "fitSummary": "..." }
+  ]
+}`;
+
+    const userPrompt = `Project: ${projectName}
+Existing Program IDs (avoid duplicates): ${(Array.isArray(existingProgramIds) ? existingProgramIds : []).join(', ') || '(None)'}
+
+[Finalized Meeting Minutes]
+${minutesMarkdown.slice(0, 6000)}
+
+Recommend the optimal COMMON sample type and program identifiers.`;
+
+    let parsed: any = null;
+    let source: 'ai' | 'fallback' = 'ai';
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: 'application/json',
+        },
+      });
+      parsed = JSON.parse(response.text?.trim() || '{}');
+    } catch (err: any) {
+      console.warn('Gemini recommend-sample-from-minutes issue, using fallback:', err?.message);
+      source = 'fallback';
+    }
+
+    const fallback = buildSampleRecommendationFallback({
+      minutesMarkdown,
+      existingProgramIds,
+    });
+
+    const validTypes = ['01', '02', '03', '04'];
+    const recommendedSampleType = validTypes.includes(String(parsed?.recommendedSampleType))
+      ? (String(parsed.recommendedSampleType) as '01' | '02' | '03' | '04')
+      : fallback.recommendedSampleType;
+
+    const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+    const suggestedModule = validModules.includes(String(parsed?.suggestedModule || '').toUpperCase())
+      ? String(parsed.suggestedModule).toUpperCase()
+      : fallback.suggestedModule;
+
+    const existingSet = new Set(
+      (Array.isArray(existingProgramIds) ? existingProgramIds : []).map((id: any) =>
+        String(id || '').trim().toUpperCase()
+      )
+    );
+    const cleanPid = String(parsed?.suggestedProgramId || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_]/g, '');
+    const suggestedProgramId =
+      cleanPid && (cleanPid.startsWith('Z') || cleanPid.startsWith('Y')) && !existingSet.has(cleanPid)
+        ? cleanPid.slice(0, 30)
+        : fallback.suggestedProgramId;
+
+    const cleanTcode = String(parsed?.suggestedTcode || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_]/g, '');
+    const suggestedTcode =
+      cleanTcode && (cleanTcode.startsWith('Z') || cleanTcode.startsWith('Y'))
+        ? cleanTcode.slice(0, 20)
+        : fallback.suggestedTcode;
+
+    return res.json({
+      recommendedSampleType,
+      confidenceReason:
+        typeof parsed?.confidenceReason === 'string' && parsed.confidenceReason.trim()
+          ? parsed.confidenceReason.trim()
+          : fallback.confidenceReason,
+      suggestedModule,
+      suggestedProgramId,
+      suggestedTcode,
+      suggestedTitle:
+        typeof parsed?.suggestedTitle === 'string' && parsed.suggestedTitle.trim()
+          ? parsed.suggestedTitle.trim().slice(0, 60)
+          : fallback.suggestedTitle,
+      requirementPrompt:
+        typeof parsed?.requirementPrompt === 'string' && parsed.requirementPrompt.trim()
+          ? parsed.requirementPrompt.trim()
+          : fallback.requirementPrompt,
+      alternatives:
+        Array.isArray(parsed?.alternatives) && parsed.alternatives.length === 4
+          ? parsed.alternatives
+          : fallback.alternatives,
+      source: parsed?.recommendedSampleType ? source : 'fallback',
+    });
+  } catch (error: any) {
+    console.error('Recommend sample error:', error);
+    return res.status(500).json({
+      error: error?.message || '샘플 유형 추천 중 오류가 발생했습니다.',
+    });
+  }
+});
+
 function normalizeSapDataTypeServer(dt: any): 'CHAR' | 'NUMC' | 'DATS' | 'TIMS' | 'CURR' | 'DEC' | 'UNIT' | 'INT4' | 'STRING' {
   const upper = String(dt || 'CHAR').trim().toUpperCase();
   if (['CHAR', 'NUMC', 'DATS', 'TIMS', 'CURR', 'DEC', 'UNIT', 'INT4', 'STRING'].includes(upper)) {

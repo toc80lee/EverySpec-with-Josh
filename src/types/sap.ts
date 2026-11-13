@@ -278,8 +278,24 @@ export interface ProgramSourceCodeTabs {
   f01?: string;
 }
 
+export type ProjectVisibility = 'common' | 'project' | 'temp';
+
+export interface SapProject {
+  code: string;                 // e.g. 'COMMON', 'TEMP', 'S4_ERP_2026'
+  name: string;                 // e.g. '공통 표준 영역 (COMMON)'
+  description: string;
+  visibility: ProjectVisibility;
+  target_sap_release: string;
+  owner: string;
+  members: string[];            // User names assigned to this project
+  modules: SapModule[];         // Active modules in project
+  is_system?: boolean;          // True for COMMON & TEMP (protected from deletion)
+  created_date: string;
+}
+
 export interface ProgramSpec {
   id: string;
+  project_code?: string;   // Required in UI/Storage: e.g. 'COMMON', 'TEMP', 'S4_ERP_2026'
   sample_type?: string;    // e.g. "01", "02", "03", "04"
   program_id: string;      // e.g. ZR_CUSTOM_REPORT
   tcode: string;           // e.g. ZREP01
@@ -331,5 +347,41 @@ export interface SavedUserTemplate {
   savedAt: string;
   spec: ProgramSpec;
 }
+
+export type MeetingMinuteStatus =
+  | 'recording'
+  | 'minutes_ready'
+  | 'recommended'
+  | 'spec_generated';
+
+export interface MeetingTranscriptSegment {
+  id: string;
+  timestamp: string;
+  speaker?: string;
+  text: string;
+  kind?: 'voice' | 'supplement' | 'note';
+}
+
+export interface ProjectMeetingMinute {
+  id: string;
+  project_code: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  author: string;
+  status: MeetingMinuteStatus;
+  segments: MeetingTranscriptSegment[];
+  raw_transcript: string;
+  supplemental_notes?: string;
+  minutes_markdown: string;
+  recommended_sample_type?: '01' | '02' | '03' | '04';
+  recommendation_reason?: string;
+  suggested_module?: SapModule;
+  suggested_program_id?: string;
+  suggested_tcode?: string;
+  suggested_title?: string;
+  generated_program_id?: string;
+}
+
 
 

@@ -27,6 +27,7 @@ export type SourceSubTab = 'program' | 'top' | 's01' | 'c01' | 'mod' | 'f01';
 interface SourceCodeEditorProps {
   spec: ProgramSpec;
   onChange: (updated: ProgramSpec) => void;
+  readOnly?: boolean;
 }
 
 const TAB_DEFINITIONS: { id: SourceSubTab; label: string; desc: string; isMain?: boolean }[] = [
@@ -38,11 +39,11 @@ const TAB_DEFINITIONS: { id: SourceSubTab; label: string; desc: string; isMain?:
   { id: 'f01', label: 'F01', desc: '서브루틴 및 FORM 로직 (INCLUDE <prog>F01)' },
 ];
 
-export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({ spec, onChange }) => {
+export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({ spec, onChange, readOnly = false }) => {
   const [activeTab, setActiveTab] = useState<SourceSubTab>('program');
   const [copied, setCopied] = useState<boolean>(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
-  const [editorMode, setEditorMode] = useState<'edit' | 'preview'>('edit');
+  const [editorMode, setEditorMode] = useState<'edit' | 'preview'>(readOnly ? 'preview' : 'edit');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightOverlayRef = useRef<HTMLDivElement>(null);
@@ -109,6 +110,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({ spec, onChan
 
   // Handle Code Text Change in ABAP Editor
   const handleCodeChange = (newCode: string) => {
+    if (readOnly) return;
     const updatedSourceTabs: ProgramSourceCodeTabs = {
       ...currentCodes,
       [activeTab]: newCode,
@@ -216,45 +218,48 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({ spec, onChan
 
         {/* Action Buttons: Template Sync, Mode Toggle, Copy, Download */}
         <div className="flex items-center gap-1.5 pb-2">
-          {(activeTab === 'program' ||
-            activeTab === 's01' ||
-            (activeTab === 'top' && (spec.sample_type === '01' || spec.sample_type === '02')) ||
-            (activeTab === 'c01' && (spec.sample_type === '01' || spec.sample_type === '02')) ||
-            (activeTab === 'mod' && (spec.sample_type === '01' || spec.sample_type === '02'))) && (
-            <button
-              type="button"
-              onClick={handleResetToDefault}
-              className="p-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-blue-700 rounded border border-slate-300 transition-colors flex items-center justify-center cursor-pointer shadow-2xs"
-              title={
-                activeTab === 's01'
-                  ? 'Sync with Selection Screen'
-                  : 'Sync with Default Template'
-              }
-              aria-label={
-                activeTab === 's01'
-                  ? 'Sync with Selection Screen'
-                  : 'Sync with Default Template'
-              }
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
-            </button>
-          )}
+          {!readOnly &&
+            (activeTab === 'program' ||
+              activeTab === 's01' ||
+              (activeTab === 'top' && (spec.sample_type === '01' || spec.sample_type === '02')) ||
+              (activeTab === 'c01' && (spec.sample_type === '01' || spec.sample_type === '02')) ||
+              (activeTab === 'mod' && (spec.sample_type === '01' || spec.sample_type === '02'))) && (
+              <button
+                type="button"
+                onClick={handleResetToDefault}
+                className="p-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-blue-700 rounded border border-slate-300 transition-colors flex items-center justify-center cursor-pointer shadow-2xs"
+                title={
+                  activeTab === 's01'
+                    ? 'Sync with Selection Screen'
+                    : 'Sync with Default Template'
+                }
+                aria-label={
+                  activeTab === 's01'
+                    ? 'Sync with Selection Screen'
+                    : 'Sync with Default Template'
+                }
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+              </button>
+            )}
 
           {/* Edit / Highlight Preview Toggle */}
           <div className="flex items-center bg-slate-200/80 p-0.5 rounded border border-slate-300 gap-0.5">
-            <button
-              type="button"
-              onClick={() => setEditorMode('edit')}
-              className={`p-1 rounded flex items-center justify-center cursor-pointer transition-all ${
-                editorMode === 'edit'
-                  ? 'bg-white text-blue-700 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Edit Code"
-              aria-label="Edit Code"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => setEditorMode('edit')}
+                className={`p-1 rounded flex items-center justify-center cursor-pointer transition-all ${
+                  editorMode === 'edit'
+                    ? 'bg-white text-blue-700 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Edit Code"
+                aria-label="Edit Code"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setEditorMode('preview')}
@@ -321,8 +326,12 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({ spec, onChan
           <span className="text-slate-500 text-[10px]">
             {lines.length} lines | {activeCode.length} chars
           </span>
-          <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200 font-sans font-medium">
-            실시간 자동 저장
+          <span className={`text-[10px] px-1.5 py-0.5 rounded border font-sans font-medium ${
+            readOnly
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : 'bg-blue-50 text-blue-700 border-blue-200'
+          }`}>
+            {readOnly ? '읽기 전용 (COMMON)' : '실시간 자동 저장'}
           </span>
         </div>
       </div>
@@ -340,7 +349,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({ spec, onChan
 
         {/* Editor Main Content: Edit Mode (Textarea with live overlay) or Full Preview Mode */}
         <div className="flex-1 relative overflow-auto bg-white">
-          {editorMode === 'edit' ? (
+          {!readOnly && editorMode === 'edit' ? (
             <div className="relative w-full h-full min-h-[520px]">
               {/* Background Syntax Highlight Layer for crisp keyword readability */}
               <div
@@ -363,6 +372,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({ spec, onChan
               <textarea
                 ref={textareaRef}
                 value={activeCode}
+                readOnly={readOnly}
                 onChange={(e) => handleCodeChange(e.target.value)}
                 onScroll={handleScroll}
                 placeholder={

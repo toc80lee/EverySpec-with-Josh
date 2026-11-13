@@ -1,4 +1,6 @@
 import { AlvField, ProgramSpec, SapModule, SelectionParameter } from '../types/sap';
+import { SAMPLE_SPECS } from '../data/sampleSpecs';
+import { COMMON_PROJECT_CODE, TEMP_PROJECT_CODE } from './projectStorage';
 
 /**
  * AI Data Extraction Logic Generator & Context-Aware Markdown Suggestion
@@ -332,6 +334,7 @@ export interface FullSpecDraftRequest {
   targetSapRelease?: string;
   programId?: string;
   tcode?: string;
+  projectCode?: string;
 }
 
 export interface FullSpecDraftResponse {
@@ -619,4 +622,239 @@ function buildClientReverseExtractFallback(req: ReverseExtractRequest) {
     suggestedFieldCatalog,
   };
 }
+
+export interface MeetingMinutesRequest {
+  rawTranscript: string;
+  supplementalNotes?: string;
+  existingMinutes?: string;
+  projectName?: string;
+  targetRelease?: string;
+  mode: 'create' | 'enrich';
+}
+
+export interface MeetingMinutesResult {
+  title: string;
+  detectedModule: SapModule;
+  minutesMarkdown: string;
+  source: 'ai' | 'fallback';
+}
+
+export async function requestAiMeetingMinutes(
+  req: MeetingMinutesRequest
+): Promise<MeetingMinutesResult> {
+  try {
+    const res = await fetch('/api/summarize-meeting-minutes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.minutesMarkdown === 'string') {
+        return {
+          title: data.title || '신규 SAP 프로그램 설계 회의',
+          detectedModule: data.detectedModule || 'SD',
+          minutesMarkdown: data.minutesMarkdown,
+          source: data.source === 'fallback' ? 'fallback' : 'ai',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Meeting minutes endpoint unavailable, using local fallback:', err);
+  }
+
+  const combined = `${req.rawTranscript}\n${req.supplementalNotes || ''}`;
+  const mod: SapModule =
+    combined.includes('구매') || combined.includes('발주')
+      ? 'MM'
+      : combined.includes('회계') || combined.includes('전표')
+      ? 'FI'
+      : combined.includes('원가') || combined.includes('코스트')
+      ? 'CO'
+      : 'SD';
+
+  const base = req.existingMinutes?.trim()
+    ? req.existingMinutes.trim()
+    : `## 1. 회의 개요\n- **대상 프로젝트**: ${req.projectName || 'SAP 프로젝트'}\n- **추정 모듈**: \`${mod}\`\n\n## 2. 핵심 요구사항\n${req.rawTranscript
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => `- ${l.trim()}`)
+        .join('\n')}`;
+
+  const supp = req.supplementalNotes?.trim()
+    ? `\n\n### 보충 논의 사항\n${req.supplementalNotes
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => `- ${l.trim()}`)
+        .join('\n')}`
+    : '';
+
+  return {
+    title: `${mod} 프로그램 설계 회의록`,
+    detectedModule: mod,
+    minutesMarkdown: `${base}${supp}`,
+    source: 'fallback',
+  };
+}
+
+export interface SampleRecommendationAlternative {
+  sampleType: '01' | '02' | '03' | '04';
+  sampleProgramId: string;
+  label: string;
+  fitSummary: string;
+}
+
+export interface SampleRecommendationRequest {
+  minutesMarkdown: string;
+  projectName?: string;
+  existingProgramIds?: string[];
+}
+
+export interface SampleRecommendationResult {
+  recommendedSampleType: '01' | '02' | '03' | '04';
+  confidenceReason: string;
+  suggestedModule: SapModule;
+  suggestedProgramId: string;
+  suggestedTcode: string;
+  suggestedTitle: string;
+  requirementPrompt: string;
+  alternatives: SampleRecommendationAlternative[];
+  source: 'ai' | 'fallback';
+}
+
+export async function requestAiSampleRecommendation(
+  req: SampleRecommendationRequest
+): Promise<SampleRecommendationResult> {
+  try {
+    const res = await fetch('/api/recommend-sample-from-minutes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.recommendedSampleType) {
+        return {
+          recommendedSampleType: data.recommendedSampleType,
+          confidenceReason: data.confidenceReason || '',
+          suggestedModule: data.suggestedModule || 'SD',
+          suggestedProgramId: data.suggestedProgramId || 'ZR_SD_MON_10',
+          suggestedTcode: data.suggestedTcode || 'ZSD010',
+          suggestedTitle: data.suggestedTitle || '업무 현황 모니터링 프로그램',
+          requirementPrompt: data.requirementPrompt || req.minutesMarkdown.slice(0, 1500),
+          alternatives: Array.isArray(data.alternatives) ? data.alternatives : [],
+          source: data.source === 'fallback' ? 'fallback' : 'ai',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Recommend sample endpoint unavailable, using local fallback:', err);
+  }
+
+  const txt = req.minutesMarkdown || '';
+  const mod: SapModule =
+    txt.includes('원가') || txt.includes('코스트')
+      ? 'CO'
+      : txt.includes('구매') || txt.includes('발주')
+      ? 'MM'
+      : txt.includes('회계') || txt.includes('전표')
+      ? 'FI'
+      : 'SD';
+
+  const recommendedSampleType: '01' | '02' | '03' | '04' =
+    txt.includes('계층') || txt.includes('트리')
+      ? '03'
+      : txt.includes('피벗') || txt.includes('교차')
+      ? '04'
+      : txt.includes('품목') || txt.includes('헤더') || txt.includes('상세')
+      ? '02'
+      : '01';
+
+  return {
+    recommendedSampleType,
+    confidenceReason: '회의록 내 데이터 조회 구조와 화면 상호작용 요구사항을 기반으로 최적의 COMMON 샘플 유형을 추천했습니다.',
+    suggestedModule: mod,
+    suggestedProgramId: `ZR_${mod}_MON_10`,
+    suggestedTcode: `Z${mod}010`,
+    suggestedTitle: `${mod} 업무 현황 조회 리포트`,
+    requirementPrompt: txt.slice(0, 1800),
+    alternatives: [
+      { sampleType: '01', sampleProgramId: 'ZRALV0010', label: 'Single ALV Grid', fitSummary: '단일 목록 조회 및 일괄 처리' },
+      { sampleType: '02', sampleProgramId: 'ZRALV0020', label: 'Master-Detail 2-Grid ALV', fitSummary: '헤더-품목 상하 분할 연동' },
+      { sampleType: '03', sampleProgramId: 'ZRALV0030', label: 'Tree ALV Grid', fitSummary: '상하위 계층 트리 및 노드 집계' },
+      { sampleType: '04', sampleProgramId: 'ZRALV0040', label: 'Multi-Dimensional Pivot Browser', fitSummary: '다차원 피벗 및 교차 집계 분석' },
+    ],
+    source: 'fallback',
+  };
+}
+
+/**
+ * Safely clone COMMON sample baseline structure (ZRALV0010~0040) without mutating originals,
+ * and apply AI-generated spec content for the target project (never COMMON).
+ */
+export function cloneAndApplyCommonSampleSpine(opts: {
+  generatedSpec: ProgramSpec;
+  sampleType: '01' | '02' | '03' | '04';
+  targetProjectCode: string;
+  programId: string;
+  tcode: string;
+  title: string;
+  module: SapModule;
+  author: string;
+  targetSapRelease: string;
+}): ProgramSpec {
+  const baseline =
+    SAMPLE_SPECS.find((s) => (s.sample_type || '01') === opts.sampleType) || SAMPLE_SPECS[0];
+  const clonedBaseline: ProgramSpec = JSON.parse(JSON.stringify(baseline));
+  const safeProjectCode =
+    opts.targetProjectCode.trim().toUpperCase() === COMMON_PROJECT_CODE
+      ? TEMP_PROJECT_CODE
+      : opts.targetProjectCode.trim().toUpperCase() || TEMP_PROJECT_CODE;
+
+  const nowDate = new Date().toISOString().split('T')[0];
+  const nowDateTime = `${nowDate} ${new Date().toTimeString().slice(0, 8)}`;
+
+  const cleanPid = opts.programId.trim().toUpperCase() || opts.generatedSpec.program_id;
+  const cleanTcode = opts.tcode.trim().toUpperCase() || opts.generatedSpec.tcode;
+  const cleanTitle = opts.title.trim() || opts.generatedSpec.title;
+
+  return {
+    ...clonedBaseline,
+    ...opts.generatedSpec,
+    id: `spec-mtg-${Date.now()}`,
+    project_code: safeProjectCode,
+    sample_type: opts.sampleType,
+    program_id: cleanPid,
+    tcode: cleanTcode,
+    title: cleanTitle,
+    module: opts.module,
+    author: opts.author,
+    created_date: nowDate,
+    target_sap_release: opts.targetSapRelease || opts.generatedSpec.target_sap_release,
+    is_system: false,
+    layout: {
+      ...clonedBaseline.layout,
+      ...opts.generatedSpec.layout,
+      grid_title: opts.generatedSpec.layout?.grid_title || cleanTitle,
+    },
+    toolbar_buttons:
+      opts.generatedSpec.toolbar_buttons && opts.generatedSpec.toolbar_buttons.length > 0
+        ? opts.generatedSpec.toolbar_buttons
+        : clonedBaseline.toolbar_buttons,
+    item_grid:
+      opts.sampleType === '02'
+        ? opts.generatedSpec.item_grid || clonedBaseline.item_grid
+        : undefined,
+    change_history: [
+      {
+        id: `hist-${Date.now()}`,
+        version: 'v1.0',
+        changed_at: nowDateTime,
+        author: opts.author,
+        comment: `회의록 기반 AI 자동 설계 (${baseline.program_id} · 유형 ${opts.sampleType} 구조 복제)`,
+      },
+    ],
+  };
+}
+
 

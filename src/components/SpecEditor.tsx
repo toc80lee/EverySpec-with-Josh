@@ -26,13 +26,28 @@ import {
   Code,
   Wand2,
   GitPullRequestCreate,
+  Undo2,
+  Redo2,
+  FileSpreadsheet,
+  FileType2,
+  Copy,
+  Lock,
+  FolderKanban,
 } from 'lucide-react';
 import { PdfExportModal } from './PdfExportModal';
 import { SpecManagerModal } from './SpecManagerModal';
 import { SourceCodeEditor } from './SourceCodeEditor';
 import { AiSpecCopilotModal } from './AiSpecCopilotModal';
 import { AiReverseExtractModal } from './AiReverseExtractModal';
+import { CopySpecModal } from './CopySpecModal';
 import { backfillMockRowsForFields } from '../utils/aiLogicGenerator';
+import { exportSpecificationDocx, exportSpecificationXlsx } from '../utils/officeExport';
+import {
+  COMMON_PROJECT_CODE,
+  TEMP_PROJECT_CODE,
+  getAccessibleProjectsForUser,
+  isReadOnlyCommonSpec,
+} from '../utils/projectStorage';
 import {
   ProgramSpec,
   SapModule,
@@ -56,13 +71,18 @@ import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 import { SAMPLE_SPECS } from '../data/sampleSpecs';
 import { downloadExcelTemplate, parseUploadedExcelOrCsv } from '../utils/excelTemplateHelper';
 import { validateSapTCode, suggestCustomerTCode } from '../utils/sapValidation';
-import { PRESET_USERS } from '../utils/authStorage';
+import { PRESET_USERS, getCurrentUser } from '../utils/authStorage';
 
 interface SpecEditorProps {
   spec: ProgramSpec;
   onChange: (updated: ProgramSpec) => void;
   onTriggerPrint?: () => void;
   onOpenTemplates?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onNotify?: (message: string) => void;
 }
 
 export const SpecEditor: React.FC<SpecEditorProps> = ({
@@ -70,6 +90,11 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
   onChange,
   onTriggerPrint,
   onOpenTemplates,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  onNotify,
 }) => {
   // Main Tabs: 1. Program Spec -> 2. Selection Screen -> 3. Main Screen -> 4. Source Code (RFQ v1.19)
   const [mainTab, setMainTab] = useState<'info' | 'selection' | 'alv' | 'source'>('info');
@@ -101,8 +126,24 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
   const [tcodeAlertNotice, setTcodeAlertNotice] = useState<string | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [isAiCopilotOpen, setIsAiCopilotOpen] = useState(false);
+  const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
   const [aiReverseExtractFocus, setAiReverseExtractFocus] = useState<'all' | 'selection' | 'fields' | null>(null);
   const [aiActionNotice, setAiActionNotice] = useState<string | null>(null);
+
+  const activeUser = getCurrentUser();
+  const accessibleProjects = useMemo(
+    () => getAccessibleProjectsForUser(activeUser.name),
+    [activeUser.name, isSpecManagerOpen, isCopyModalOpen, spec.project_code]
+  );
+  const isReadOnlyCommon = isReadOnlyCommonSpec(spec);
+
+  const safeOnChange = (updated: ProgramSpec) => {
+    if (isReadOnlyCommon) {
+      onNotify?.('COMMON 프로젝트 샘플은 읽기 전용입니다. 다른 프로젝트로 복사 후 편집하세요.');
+      return;
+    }
+    onChange(updated);
+  };
 
   // Dynamic Selection Param Addition State & Function
   const [showAddParamModal, setShowAddParamModal] = useState(false);
@@ -206,21 +247,35 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
     };
 
     const updated = [...spec.selection_params, newParam];
-    onChange({ ...spec, selection_params: updated });
+    safeOnChange({ ...spec, selection_params: updated });
     return newParam;
   };
 
-  // Switch or configure sample type (01: Single ALV, 02: Master-Detail, 03: Tree ALV)
+  // Switch or configure sample type (01: Single ALV, 02: Master-Detail, 03: Tree ALV, 04: Pivot Browser)
   const handleSampleTypeChange = (newType: string) => {
-    const foundSample = SAMPLE_SPECS.find(s => s.sample_type === newType);
+    const foundSample = SAMPLE_SPECS.find((s) => s.sample_type === newType);
     if (foundSample) {
-      onChange({
-        ...foundSample,
-        id: spec.id,
-        sample_type: newType,
-      });
-    } else {
-      onChange({
+      if (isReadOnlyCommon) {
+        onChange({
+          ...foundSample,
+          project_code: COMMON_PROJECT_CODE,
+          sample_type: newType,
+        });
+      } else {
+        safeOnChange({
+          ...foundSample,
+          id: spec.id,
+          project_code: spec.project_code || TEMP_PROJECT_CODE,
+          program_id: spec.program_id,
+          tcode: spec.tcode,
+          title: spec.title,
+          author: spec.author,
+          is_system: false,
+          sample_type: newType,
+        });
+      }
+    } else if (!isReadOnlyCommon) {
+      safeOnChange({
         ...spec,
         sample_type: newType,
       });
@@ -264,7 +319,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
 
   const updateActiveLayout = (newLayout: AlvLayout) => {
     if (activeIsItem) {
-      onChange({
+      safeOnChange({
         ...spec,
         item_grid: {
           ...(spec.item_grid || {
@@ -278,13 +333,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         },
       });
     } else {
-      onChange({ ...spec, layout: newLayout });
+      safeOnChange({ ...spec, layout: newLayout });
     }
   };
 
   const updateActiveFieldCatalog = (newCatalog: AlvField[], newMockRows?: Record<string, any>[]) => {
     if (activeIsItem) {
-      onChange({
+      safeOnChange({
         ...spec,
         item_grid: {
           ...(spec.item_grid || {
@@ -299,7 +354,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         },
       });
     } else {
-      onChange({
+      safeOnChange({
         ...spec,
         field_catalog: newCatalog,
         ...(newMockRows ? { mock_rows: newMockRows } : {}),
@@ -324,7 +379,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
 
   const updateActiveToolbarButtons = (newButtons: AlvToolbarButton[]) => {
     if (activeIsItem) {
-      onChange({
+      safeOnChange({
         ...spec,
         item_grid: {
           ...(spec.item_grid || {
@@ -338,13 +393,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         },
       });
     } else {
-      onChange({ ...spec, toolbar_buttons: newButtons });
+      safeOnChange({ ...spec, toolbar_buttons: newButtons });
     }
   };
 
   const updateActiveTestCases = (newTestCases: TestCase[]) => {
     if (activeIsItem) {
-      onChange({
+      safeOnChange({
         ...spec,
         item_grid: {
           ...(spec.item_grid || {
@@ -358,13 +413,13 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         },
       });
     } else {
-      onChange({ ...spec, test_cases: newTestCases });
+      safeOnChange({ ...spec, test_cases: newTestCases });
     }
   };
 
   const updateActiveMockRows = (newRows: Record<string, any>[]) => {
     if (activeIsItem) {
-      onChange({
+      safeOnChange({
         ...spec,
         item_grid: {
           ...(spec.item_grid || {
@@ -378,7 +433,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         },
       });
     } else {
-      onChange({ ...spec, mock_rows: newRows });
+      safeOnChange({ ...spec, mock_rows: newRows });
     }
   };
 
@@ -505,8 +560,33 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
           </button>
         </div>
 
-        {/* Right side quick actions: AI Copilot, Spec List, Export PDF & Templates */}
+        {/* Right side quick actions: Undo/Redo, AI Copilot, Spec List, Export PDF & Templates */}
         <div className="flex items-center gap-1.5 py-1.5">
+          {onUndo && (
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="p-2 text-slate-700 bg-white hover:bg-slate-100 hover:text-blue-700 border border-slate-300 rounded-md transition-colors flex items-center justify-center shadow-2xs cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+              title="Undo (Ctrl+Z)"
+              aria-label="Undo"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+          )}
+          {onRedo && (
+            <button
+              type="button"
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="p-2 text-slate-700 bg-white hover:bg-slate-100 hover:text-blue-700 border border-slate-300 rounded-md transition-colors flex items-center justify-center shadow-2xs cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+              title="Redo (Ctrl+Y)"
+              aria-label="Redo"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
+          )}
+
           {/* AI Spec Copilot Button (Icon only) */}
           <button
             type="button"
@@ -516,6 +596,17 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
             aria-label="AI Spec Copilot"
           >
             <Wand2 className="w-4 h-4 text-indigo-600" />
+          </button>
+
+          {/* Copy to Project Button (Icon only) */}
+          <button
+            type="button"
+            onClick={() => setIsCopyModalOpen(true)}
+            className="p-2 text-slate-700 bg-white hover:bg-blue-50 hover:text-blue-700 border border-slate-300 rounded-md transition-colors flex items-center justify-center shadow-2xs cursor-pointer"
+            title="Copy Spec to Project"
+            aria-label="Copy Spec to Project"
+          >
+            <Copy className="w-4 h-4 text-blue-600" />
           </button>
 
           {/* Spec List Button (Icon only) */}
@@ -540,6 +631,44 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
             <FileDown className="w-4 h-4 text-blue-600" />
           </button>
 
+          {/* Export Word (.docx) Button (Icon only) */}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const filename = await exportSpecificationDocx(spec);
+                onNotify?.(`Word (.docx) 사양서가 다운로드되었습니다: ${filename}`);
+              } catch (err) {
+                console.error('DOCX export error:', err);
+                onNotify?.('Word (.docx) 생성 중 오류가 발생했습니다.');
+              }
+            }}
+            className="p-2 text-slate-700 bg-white hover:bg-sky-50 hover:text-sky-700 border border-slate-300 rounded-md transition-colors flex items-center justify-center shadow-2xs cursor-pointer"
+            title="Export Word (.docx)"
+            aria-label="Export Word"
+          >
+            <FileType2 className="w-4 h-4 text-sky-600" />
+          </button>
+
+          {/* Export Multi-Sheet Excel (.xlsx) Button (Icon only) */}
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                const filename = exportSpecificationXlsx(spec);
+                onNotify?.(`다중 시트 Excel (.xlsx) 파일이 다운로드되었습니다: ${filename}`);
+              } catch (err) {
+                console.error('XLSX export error:', err);
+                onNotify?.('Excel (.xlsx) 생성 중 오류가 발생했습니다.');
+              }
+            }}
+            className="p-2 text-slate-700 bg-white hover:bg-teal-50 hover:text-teal-700 border border-slate-300 rounded-md transition-colors flex items-center justify-center shadow-2xs cursor-pointer"
+            title="Export Multi-Sheet Excel (.xlsx)"
+            aria-label="Export Multi-Sheet Excel"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-teal-600" />
+          </button>
+
           {/* Templates Button (Icon only) */}
           {onOpenTemplates && (
             <button
@@ -557,6 +686,29 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
 
       {/* Editor Content Area */}
       <div className="flex-1 p-5 overflow-y-auto">
+        {isReadOnlyCommon && (
+          <div className="mb-4 p-3 rounded-lg border border-blue-200 bg-blue-50/80 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold text-slate-900">
+                  COMMON 공통 프로젝트 읽기 전용 ({spec.program_id})
+                </div>
+                <p className="text-[11px] text-slate-600 mt-0.5 leading-snug">
+                  공통 프로젝트(COMMON)의 표준 샘플은 원본 보호를 위해 읽기 전용으로 유지됩니다. 일반 프로젝트 또는 TEMP로 복사하여 수정·저장하세요.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsCopyModalOpen(true)}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-2xs flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>다른 프로젝트로 복사</span>
+            </button>
+          </div>
+        )}
         {aiActionNotice && (
           <div className="mb-4 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg text-xs text-emerald-900 flex items-center justify-between shadow-2xs">
             <div className="flex items-center gap-2">
@@ -643,12 +795,12 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   </div>
                 </div>
 
-                {tcodeValidation.suggestedTCode && (
+                {!isReadOnlyCommon && tcodeValidation.suggestedTCode && (
                   <button
                     type="button"
                     onClick={() => {
                       const fixed = tcodeValidation.suggestedTCode!;
-                      onChange({ ...spec, tcode: fixed });
+                      safeOnChange({ ...spec, tcode: fixed });
                       setTcodeAlertNotice(`Transaction Code updated to compliant '${fixed}' (Customer Namespace).`);
                       setTimeout(() => setTcodeAlertNotice(null), 4500);
                     }}
@@ -680,17 +832,66 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
+              {/* Required Project Assignment Field */}
+              <div className="md:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Project <span className="text-red-500 font-bold">*</span>
+                  </label>
+                  {isReadOnlyCommon ? (
+                    <span className="text-[10px] font-medium text-blue-700">
+                      COMMON 읽기 전용
+                    </span>
+                  ) : !spec.project_code ? (
+                    <span className="text-[10px] font-semibold text-rose-600">
+                      필수 선택 항목
+                    </span>
+                  ) : null}
+                </div>
+                <div className="relative">
+                  <FolderKanban className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none" />
+                  <select
+                    required
+                    disabled={isReadOnlyCommon}
+                    value={spec.project_code || ''}
+                    onChange={(e) => safeOnChange({ ...spec, project_code: e.target.value })}
+                    aria-label="Project"
+                    className={`w-full pl-8 pr-3 py-1.5 rounded text-xs font-semibold transition-colors cursor-pointer disabled:bg-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed ${
+                      !spec.project_code
+                        ? 'bg-rose-50 border-2 border-rose-400 text-rose-900'
+                        : 'bg-slate-50 border border-slate-300 text-slate-900 focus:bg-white focus:border-blue-500'
+                    }`}
+                  >
+                    <option value="" disabled>
+                      프로젝트를 선택하세요 (필수)...
+                    </option>
+                    {accessibleProjects.map((p) => {
+                      if (!isReadOnlyCommon && p.code === COMMON_PROJECT_CODE && spec.project_code !== COMMON_PROJECT_CODE) {
+                        return null;
+                      }
+                      return (
+                        <option key={p.code} value={p.code}>
+                          [{p.code}] {p.name}
+                          {p.code === TEMP_PROJECT_CODE ? ' (나만 보기)' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Program ID <span className="text-red-500 font-bold">*</span>
                 </label>
                 <input
                   type="text"
                   required
+                  disabled={isReadOnlyCommon}
                   value={spec.program_id}
-                  onChange={(e) => onChange({ ...spec, program_id: e.target.value })}
-                  onBlur={(e) => onChange({ ...spec, program_id: e.target.value.trim().toUpperCase() })}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-mono font-bold text-blue-900 uppercase focus:bg-white focus:border-blue-500"
+                  onChange={(e) => safeOnChange({ ...spec, program_id: e.target.value })}
+                  onBlur={(e) => safeOnChange({ ...spec, program_id: e.target.value.trim().toUpperCase() })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-mono font-bold text-blue-900 uppercase focus:bg-white focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed"
                 />
               </div>
 
@@ -715,9 +916,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   Module
                 </label>
                 <select
+                  disabled={isReadOnlyCommon}
                   value={spec.module}
-                  onChange={(e) => onChange({ ...spec, module: e.target.value as SapModule })}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-semibold text-slate-800 focus:bg-white focus:border-blue-500"
+                  onChange={(e) => safeOnChange({ ...spec, module: e.target.value as SapModule })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-semibold text-slate-800 focus:bg-white focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed"
                 >
                   <option value="SD">SD (Sales & Distribution)</option>
                   <option value="MM">MM (Materials Management)</option>
@@ -737,9 +939,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 </label>
                 <input
                   type="text"
+                  disabled={isReadOnlyCommon}
                   value={spec.target_sap_release}
-                  onChange={(e) => onChange({ ...spec, target_sap_release: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500"
+                  onChange={(e) => safeOnChange({ ...spec, target_sap_release: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed"
                 />
               </div>
 
@@ -772,19 +975,21 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   <input
                     type="text"
                     required
+                    disabled={isReadOnlyCommon}
                     value={spec.tcode}
                     onChange={(e) => {
-                      onChange({ ...spec, tcode: e.target.value });
+                      safeOnChange({ ...spec, tcode: e.target.value });
                     }}
                     onBlur={(e) => {
+                      if (isReadOnlyCommon) return;
                       const formatted = e.target.value.trim().toUpperCase();
-                      onChange({ ...spec, tcode: formatted });
+                      safeOnChange({ ...spec, tcode: formatted });
                       const check = validateSapTCode(formatted);
                       if (!check.isValid) {
                         setTcodeAlertNotice(check.message);
                       }
                     }}
-                    className={`w-full rounded px-3 py-1.5 text-xs font-mono font-bold uppercase transition-colors pr-8 ${
+                    className={`w-full rounded px-3 py-1.5 text-xs font-mono font-bold uppercase transition-colors pr-8 disabled:bg-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed ${
                       !tcodeValidation.isValid
                         ? tcodeValidation.severity === 'error'
                           ? 'bg-rose-50/70 border-2 border-rose-400 text-rose-950 focus:bg-white focus:border-rose-600'
@@ -837,7 +1042,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                       </div>
                     </div>
 
-                    {tcodeValidation.suggestedTCode && (
+                    {!isReadOnlyCommon && tcodeValidation.suggestedTCode && (
                       <div className="pt-1.5 border-t border-amber-200 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[11px] text-slate-700 font-medium">
                           추천 표준 T-Code:{' '}
@@ -849,7 +1054,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                           type="button"
                           onClick={() => {
                             const fixed = tcodeValidation.suggestedTCode!;
-                            onChange({ ...spec, tcode: fixed });
+                            safeOnChange({ ...spec, tcode: fixed });
                             setTcodeAlertNotice(`Transaction Code가 표준 '${fixed}'로 자동 변경되었습니다.`);
                             setTimeout(() => setTcodeAlertNotice(null), 4000);
                           }}
@@ -871,9 +1076,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 <input
                   type="text"
                   required
+                  disabled={isReadOnlyCommon}
                   value={spec.title}
-                  onChange={(e) => onChange({ ...spec, title: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500"
+                  onChange={(e) => safeOnChange({ ...spec, title: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed"
                 />
               </div>
 
@@ -883,14 +1089,15 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 </label>
                 <select
                   required
+                  disabled={isReadOnlyCommon}
                   value={
                     PRESET_USERS.some((u) => u.name === spec.author)
                       ? spec.author
                       : PRESET_USERS[0].name
                   }
-                  onChange={(e) => onChange({ ...spec, author: e.target.value })}
+                  onChange={(e) => safeOnChange({ ...spec, author: e.target.value })}
                   aria-label="Author"
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500 cursor-pointer"
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-blue-500 cursor-pointer disabled:bg-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed"
                 >
                   {PRESET_USERS.map((u) => (
                     <option key={u.id} value={u.name}>
@@ -909,24 +1116,25 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   <input
                     type="text"
                     required
+                    disabled={isReadOnlyCommon}
                     value={spec.cds_view_table || ''}
-                    onChange={(e) => onChange({ ...spec, cds_view_table: e.target.value.toUpperCase() })}
+                    onChange={(e) => safeOnChange({ ...spec, cds_view_table: e.target.value.toUpperCase() })}
                     placeholder="예: ACDOCA, BSEG, I_JournalEntryItem"
-                    className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-mono font-bold uppercase text-blue-900 focus:bg-white focus:border-blue-500"
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-mono font-bold uppercase text-blue-900 focus:bg-white focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed"
                   />
                 </div>
               )}
             </div>
 
             {/* Business Purpose */}
-            <div>
+            <div className={isReadOnlyCommon ? 'pointer-events-none opacity-80' : ''}>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Business Purpose
               </label>
 
               <MarkdownFieldEditor
                 value={spec.business_purpose}
-                onChange={(val) => onChange({ ...spec, business_purpose: val })}
+                onChange={(val) => safeOnChange({ ...spec, business_purpose: val })}
                 rows={4}
                 minHeight="120px"
                 placeholder="업무 배경, 개발 목적, 대상 사용자 및 기대 효과를 마크다운(# 제목, - 목록, **굵게**, `코드`) 형식으로 입력해 주세요."
@@ -939,25 +1147,27 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
             </div>
 
             {/* Data Extraction & Logic */}
-            <div>
+            <div className={isReadOnlyCommon ? 'pointer-events-none opacity-80' : ''}>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-semibold text-slate-700">
                   Data Extraction & Logic
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setAiReverseExtractFocus('all')}
-                  className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
-                  title="AI Extract Selection & Fields from Logic"
-                  aria-label="AI Extract Selection & Fields from Logic"
-                >
-                  <GitPullRequestCreate className="w-3.5 h-3.5 text-indigo-600" />
-                </button>
+                {!isReadOnlyCommon && (
+                  <button
+                    type="button"
+                    onClick={() => setAiReverseExtractFocus('all')}
+                    className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
+                    title="AI Extract Selection & Fields from Logic"
+                    aria-label="AI Extract Selection & Fields from Logic"
+                  >
+                    <GitPullRequestCreate className="w-3.5 h-3.5 text-indigo-600" />
+                  </button>
+                )}
               </div>
 
               <MarkdownFieldEditor
                 value={spec.data_extraction_logic}
-                onChange={(val) => onChange({ ...spec, data_extraction_logic: val })}
+                onChange={(val) => safeOnChange({ ...spec, data_extraction_logic: val })}
                 rows={7}
                 minHeight="180px"
                 placeholder="원천 DB 테이블, JOIN 및 WHERE 조건, 신호등 상태 로직(LIGHTS=1/2/3), 집계 기준 등을 마크다운(# 제목, - 목록, `테이블/필드명`) 형식으로 입력해 주세요. 상단 툴바의 녹음 또는 AI 제안 버튼을 활용할 수 있습니다."
@@ -974,10 +1184,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
 
             {/* Sub-Tab 2: Data Flow Diagram (Visual Program Flowchart) (RFQ v1.07 Page 3 & 4) */}
             {specSubTab === 'flow' && (
-              <div className="space-y-4">
+              <div className={`space-y-4 ${isReadOnlyCommon ? 'pointer-events-none opacity-80' : ''}`}>
                 <DataFlowEditor
                   spec={spec}
-                  onChange={(updatedFlow) => onChange({ ...spec, data_flow: updatedFlow })}
+                  onChange={(updatedFlow) => safeOnChange({ ...spec, data_flow: updatedFlow })}
                 />
               </div>
             )}
@@ -1004,14 +1214,18 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
               </div>
             </div>
 
-            <SelectionScreenEditor
-              spec={spec}
-              onChange={(updatedParams) => {
-                onChange({ ...spec, selection_params: updatedParams });
-              }}
-              onAddParam={handleAddSelectionParam}
-              onOpenAiExtract={() => setAiReverseExtractFocus('selection')}
-            />
+            <div className={isReadOnlyCommon ? 'pointer-events-none opacity-80' : ''}>
+              <SelectionScreenEditor
+                spec={spec}
+                onChange={(updatedParams) => {
+                  safeOnChange({ ...spec, selection_params: updatedParams });
+                }}
+                onAddParam={handleAddSelectionParam}
+                onOpenAiExtract={() => {
+                  if (!isReadOnlyCommon) setAiReverseExtractFocus('selection');
+                }}
+              />
+            </div>
           </div>
         )}
 
@@ -1462,10 +1676,12 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
 
             {/* Sub-Tab 1: Layout (LVC_S_LAYO Full Configuration - Spreadsheet Format with Direct Excel Paste) */}
             {alvSubTab === 'layout' && (
-              <AlvLayoutSpreadsheet
-                layout={activeLayout}
-                onChange={(updatedLayout) => updateActiveLayout(updatedLayout)}
-              />
+              <div className={isReadOnlyCommon ? 'pointer-events-none opacity-80' : ''}>
+                <AlvLayoutSpreadsheet
+                  layout={activeLayout}
+                  onChange={(updatedLayout) => updateActiveLayout(updatedLayout)}
+                />
+              </div>
             )}
 
             {/* Sub-Tab 2: Field Catalog */}
@@ -1482,18 +1698,22 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   </div>
                 </div>
 
-                <FieldCatalogEditor
-                  spec={{
-                    ...spec,
-                    field_catalog: activeFieldCatalog,
-                    mock_rows: activeMockRows,
-                  }}
-                  onChange={(updatedCatalog, updatedMockRows) => {
-                    updateActiveFieldCatalog(updatedCatalog, updatedMockRows);
-                  }}
-                  onReorder={handleReorderFieldCatalog}
-                  onOpenAiExtract={() => setAiReverseExtractFocus('fields')}
-                />
+                <div className={isReadOnlyCommon ? 'pointer-events-none opacity-80' : ''}>
+                  <FieldCatalogEditor
+                    spec={{
+                      ...spec,
+                      field_catalog: activeFieldCatalog,
+                      mock_rows: activeMockRows,
+                    }}
+                    onChange={(updatedCatalog, updatedMockRows) => {
+                      updateActiveFieldCatalog(updatedCatalog, updatedMockRows);
+                    }}
+                    onReorder={handleReorderFieldCatalog}
+                    onOpenAiExtract={() => {
+                      if (!isReadOnlyCommon) setAiReverseExtractFocus('fields');
+                    }}
+                  />
+                </div>
               </div>
             )}
 
@@ -1509,17 +1729,19 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   </p>
                 </div>
 
-                <AlvSortEditor
-                  spec={{
-                    ...spec,
-                    field_catalog: activeFieldCatalog,
-                    mock_rows: activeMockRows,
-                  }}
-                  onChange={(updatedCatalog, updatedMockRows) => {
-                    updateActiveFieldCatalog(updatedCatalog, updatedMockRows);
-                  }}
-                  onReorder={handleReorderFieldCatalog}
-                />
+                <div className={isReadOnlyCommon ? 'pointer-events-none opacity-80' : ''}>
+                  <AlvSortEditor
+                    spec={{
+                      ...spec,
+                      field_catalog: activeFieldCatalog,
+                      mock_rows: activeMockRows,
+                    }}
+                    onChange={(updatedCatalog, updatedMockRows) => {
+                      updateActiveFieldCatalog(updatedCatalog, updatedMockRows);
+                    }}
+                    onReorder={handleReorderFieldCatalog}
+                  />
+                </div>
               </div>
             )}
 
@@ -1535,15 +1757,17 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   </p>
                 </div>
 
-                <ToolbarEditor
-                  spec={{
-                    ...spec,
-                    toolbar_buttons: activeToolbarButtons,
-                  }}
-                  onChange={(updatedButtons) => {
-                    updateActiveToolbarButtons(updatedButtons);
-                  }}
-                />
+                <div className={isReadOnlyCommon ? 'pointer-events-none opacity-80' : ''}>
+                  <ToolbarEditor
+                    spec={{
+                      ...spec,
+                      toolbar_buttons: activeToolbarButtons,
+                    }}
+                    onChange={(updatedButtons) => {
+                      updateActiveToolbarButtons(updatedButtons);
+                    }}
+                  />
+                </div>
               </div>
             )}
 
@@ -1578,30 +1802,34 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                       <span>Download Template</span>
                     </button>
 
-                    {/* Excel / CSV Upload Button */}
-                    <label
-                      className="px-3 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-                      title="Upload prepared CSV test data to render in the ALV grid."
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Upload CSV</span>
-                      <input
-                        type="file"
-                        accept=".csv,.txt"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
+                    {!isReadOnlyCommon && (
+                      <>
+                        {/* Excel / CSV Upload Button */}
+                        <label
+                          className="px-3 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                          title="Upload prepared CSV test data to render in the ALV grid."
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Upload CSV</span>
+                          <input
+                            type="file"
+                            accept=".csv,.txt"
+                            className="hidden"
+                            onChange={handleFileUpload}
+                          />
+                        </label>
 
-                    {/* Add Test Scenario */}
-                    <button
-                      type="button"
-                      onClick={handleAddTestCase}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Test Scenario</span>
-                    </button>
+                        {/* Add Test Scenario */}
+                        <button
+                          type="button"
+                          onClick={handleAddTestCase}
+                          className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Test Scenario</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -1647,46 +1875,50 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                             <td className="p-1.5">
                               <input
                                 type="text"
+                                disabled={isReadOnlyCommon}
                                 value={tc.scenario}
                                 onChange={(e) => {
                                   const next = [...activeTestCases];
                                   next[idx] = { ...next[idx], scenario: e.target.value };
                                   updateActiveTestCases(next);
                                 }}
-                                className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500"
+                                className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-600"
                               />
                             </td>
                             <td className="p-1.5">
                               <input
                                 type="text"
+                                disabled={isReadOnlyCommon}
                                 value={tc.condition}
                                 onChange={(e) => {
                                   const next = [...activeTestCases];
                                   next[idx] = { ...next[idx], condition: e.target.value };
                                   updateActiveTestCases(next);
                                 }}
-                                className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500"
+                                className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded focus:bg-white focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-600"
                               />
                             </td>
                             <td className="p-1.5">
                               <input
                                 type="text"
+                                disabled={isReadOnlyCommon}
                                 value={tc.expected}
                                 onChange={(e) => {
                                   const next = [...activeTestCases];
                                   next[idx] = { ...next[idx], expected: e.target.value };
                                   updateActiveTestCases(next);
                                 }}
-                                className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded font-medium text-emerald-900 focus:bg-white focus:border-blue-500"
+                                className="w-full bg-slate-50 border border-slate-200 px-2 py-1 rounded font-medium text-emerald-900 focus:bg-white focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-600"
                               />
                             </td>
                             <td className="p-1.5 text-center">
                               <button
                                 type="button"
+                                disabled={isReadOnlyCommon}
                                 onClick={() => {
                                   updateActiveTestCases(activeTestCases.filter((_, i) => i !== idx));
                                 }}
-                                className="p-1 text-slate-400 hover:text-red-600 cursor-pointer"
+                                className="p-1 text-slate-400 hover:text-red-600 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -1782,7 +2014,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         {/* ========================================================================= */}
         {mainTab === 'source' && (
           <div className="h-full min-h-[600px] flex flex-col">
-            <SourceCodeEditor spec={spec} onChange={onChange} />
+            <SourceCodeEditor spec={spec} onChange={safeOnChange} readOnly={isReadOnlyCommon} />
           </div>
         )}
       </div>
@@ -1808,11 +2040,30 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         onClose={() => setIsAiCopilotOpen(false)}
         currentSpec={spec}
         onApplySpec={(generatedSpec) => {
-          onChange(generatedSpec);
+          const targetProj = isReadOnlyCommon
+            ? TEMP_PROJECT_CODE
+            : spec.project_code || TEMP_PROJECT_CODE;
+          onChange({
+            ...generatedSpec,
+            project_code: targetProj,
+            is_system: false,
+          });
           setAiActionNotice(
-            `AI Spec Copilot 초안(${generatedSpec.program_id} / ${generatedSpec.tcode})이 사양서에 적용되었습니다.`
+            `AI Spec Copilot 초안(${generatedSpec.program_id} / ${generatedSpec.tcode})이 '${targetProj}' 프로젝트 사양서에 적용되었습니다.`
           );
           setTimeout(() => setAiActionNotice(null), 5000);
+        }}
+      />
+
+      {/* Copy Spec to Target Project Modal */}
+      <CopySpecModal
+        isOpen={isCopyModalOpen}
+        sourceSpec={spec}
+        defaultTargetProject={isReadOnlyCommon ? TEMP_PROJECT_CODE : spec.project_code}
+        onClose={() => setIsCopyModalOpen(false)}
+        onCopied={(newSpec) => {
+          onChange(newSpec);
+          onNotify?.(`'${newSpec.project_code}' 프로젝트로 사양서 '${newSpec.program_id}'이(가) 복사되었습니다.`);
         }}
       />
 
@@ -1824,6 +2075,10 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         activeFieldCatalog={activeFieldCatalog}
         initialFocus={aiReverseExtractFocus || 'all'}
         onApply={(addedParams, addedFields) => {
+          if (isReadOnlyCommon) {
+            onNotify?.('COMMON 프로젝트 샘플은 읽기 전용입니다. 다른 프로젝트로 복사 후 편집하세요.');
+            return;
+          }
           const existingParamNames = new Set(spec.selection_params.map((p) => p.name.toUpperCase()));
           const uniqueParams = addedParams.filter((p) => !existingParamNames.has(p.name.toUpperCase()));
           const nextSelectionParams = [...spec.selection_params, ...uniqueParams];
@@ -1841,7 +2096,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
           );
 
           if (activeIsItem && spec.item_grid) {
-            onChange({
+            safeOnChange({
               ...spec,
               selection_params: nextSelectionParams,
               item_grid: {
@@ -1851,7 +2106,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
               },
             });
           } else {
-            onChange({
+            safeOnChange({
               ...spec,
               selection_params: nextSelectionParams,
               field_catalog: mergedCatalog,
