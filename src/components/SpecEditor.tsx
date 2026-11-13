@@ -24,10 +24,15 @@ import {
   FileDown,
   FolderOpen,
   Code,
+  Wand2,
+  GitPullRequestCreate,
 } from 'lucide-react';
 import { PdfExportModal } from './PdfExportModal';
 import { SpecManagerModal } from './SpecManagerModal';
 import { SourceCodeEditor } from './SourceCodeEditor';
+import { AiSpecCopilotModal } from './AiSpecCopilotModal';
+import { AiReverseExtractModal } from './AiReverseExtractModal';
+import { backfillMockRowsForFields } from '../utils/aiLogicGenerator';
 import {
   ProgramSpec,
   SapModule,
@@ -95,6 +100,9 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
   const tcodeValidation = useMemo(() => validateSapTCode(spec.tcode), [spec.tcode]);
   const [tcodeAlertNotice, setTcodeAlertNotice] = useState<string | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isAiCopilotOpen, setIsAiCopilotOpen] = useState(false);
+  const [aiReverseExtractFocus, setAiReverseExtractFocus] = useState<'all' | 'selection' | 'fields' | null>(null);
+  const [aiActionNotice, setAiActionNotice] = useState<string | null>(null);
 
   // Dynamic Selection Param Addition State & Function
   const [showAddParamModal, setShowAddParamModal] = useState(false);
@@ -497,8 +505,19 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
           </button>
         </div>
 
-        {/* Right side quick actions: Spec List, Export PDF & Templates (Icon only per RFQ v1.10 Page 1 & 2) */}
+        {/* Right side quick actions: AI Copilot, Spec List, Export PDF & Templates */}
         <div className="flex items-center gap-1.5 py-1.5">
+          {/* AI Spec Copilot Button (Icon only) */}
+          <button
+            type="button"
+            onClick={() => setIsAiCopilotOpen(true)}
+            className="p-2 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-md transition-colors flex items-center justify-center shadow-2xs cursor-pointer"
+            title="AI Spec Copilot (Generate Spec from Requirements)"
+            aria-label="AI Spec Copilot"
+          >
+            <Wand2 className="w-4 h-4 text-indigo-600" />
+          </button>
+
           {/* Spec List Button (Icon only) */}
           <button
             type="button"
@@ -538,6 +557,21 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
 
       {/* Editor Content Area */}
       <div className="flex-1 p-5 overflow-y-auto">
+        {aiActionNotice && (
+          <div className="mb-4 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg text-xs text-emerald-900 flex items-center justify-between shadow-2xs">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-medium">{aiActionNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAiActionNotice(null)}
+              className="text-emerald-700 hover:text-emerald-950 font-bold px-1 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {/* ========================================================================= */}
         {/* MAIN TAB 1: 프로그램 개요 & 로직 (Program Info & Logic)                    */}
         {/* ========================================================================= */}
@@ -906,9 +940,20 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
 
             {/* Data Extraction & Logic */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Data Extraction & Logic
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Data Extraction & Logic
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setAiReverseExtractFocus('all')}
+                  className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
+                  title="AI Extract Selection & Fields from Logic"
+                  aria-label="AI Extract Selection & Fields from Logic"
+                >
+                  <GitPullRequestCreate className="w-3.5 h-3.5 text-indigo-600" />
+                </button>
+              </div>
 
               <MarkdownFieldEditor
                 value={spec.data_extraction_logic}
@@ -965,6 +1010,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                 onChange({ ...spec, selection_params: updatedParams });
               }}
               onAddParam={handleAddSelectionParam}
+              onOpenAiExtract={() => setAiReverseExtractFocus('selection')}
             />
           </div>
         )}
@@ -1446,6 +1492,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                     updateActiveFieldCatalog(updatedCatalog, updatedMockRows);
                   }}
                   onReorder={handleReorderFieldCatalog}
+                  onOpenAiExtract={() => setAiReverseExtractFocus('fields')}
                 />
               </div>
             )}
@@ -1753,6 +1800,70 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
         isOpen={isSpecManagerOpen}
         onClose={() => setIsSpecManagerOpen(false)}
         onSelectSpec={(newSpec) => onChange(newSpec)}
+      />
+
+      {/* AI Spec Copilot Modal (Natural Language -> Full Spec Draft) */}
+      <AiSpecCopilotModal
+        isOpen={isAiCopilotOpen}
+        onClose={() => setIsAiCopilotOpen(false)}
+        currentSpec={spec}
+        onApplySpec={(generatedSpec) => {
+          onChange(generatedSpec);
+          setAiActionNotice(
+            `AI Spec Copilot 초안(${generatedSpec.program_id} / ${generatedSpec.tcode})이 사양서에 적용되었습니다.`
+          );
+          setTimeout(() => setAiActionNotice(null), 5000);
+        }}
+      />
+
+      {/* AI Reverse Extract Modal (Logic / Purpose -> Selection Screen & Field Catalog) */}
+      <AiReverseExtractModal
+        isOpen={aiReverseExtractFocus !== null}
+        onClose={() => setAiReverseExtractFocus(null)}
+        spec={spec}
+        activeFieldCatalog={activeFieldCatalog}
+        initialFocus={aiReverseExtractFocus || 'all'}
+        onApply={(addedParams, addedFields) => {
+          const existingParamNames = new Set(spec.selection_params.map((p) => p.name.toUpperCase()));
+          const uniqueParams = addedParams.filter((p) => !existingParamNames.has(p.name.toUpperCase()));
+          const nextSelectionParams = [...spec.selection_params, ...uniqueParams];
+
+          const existingFieldNames = new Set(activeFieldCatalog.map((f) => f.fieldname.toUpperCase()));
+          const uniqueFields = addedFields.filter((f) => !existingFieldNames.has(f.fieldname.toUpperCase()));
+          const mergedCatalog = [...activeFieldCatalog, ...uniqueFields].map((f, idx) => ({
+            ...f,
+            col_pos: idx + 1,
+          }));
+          const updatedMockRows = backfillMockRowsForFields(
+            activeMockRows,
+            uniqueFields,
+            mergedCatalog
+          );
+
+          if (activeIsItem && spec.item_grid) {
+            onChange({
+              ...spec,
+              selection_params: nextSelectionParams,
+              item_grid: {
+                ...spec.item_grid,
+                field_catalog: mergedCatalog,
+                mock_rows: updatedMockRows,
+              },
+            });
+          } else {
+            onChange({
+              ...spec,
+              selection_params: nextSelectionParams,
+              field_catalog: mergedCatalog,
+              mock_rows: updatedMockRows,
+            });
+          }
+
+          setAiActionNotice(
+            `AI 역추출 반영 완료: Selection ${uniqueParams.length}건, Field Catalog ${uniqueFields.length}건 추가됨.`
+          );
+          setTimeout(() => setAiActionNotice(null), 5000);
+        }}
       />
     </div>
   );

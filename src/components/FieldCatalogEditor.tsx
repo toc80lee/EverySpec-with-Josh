@@ -19,6 +19,7 @@ import {
   Wand2,
   ChevronDown,
   Check,
+  GitPullRequestCreate,
 } from 'lucide-react';
 import { AlvField, ProgramSpec, SapDataType, TextAlignment } from '../types/sap';
 import { SapSearchHelpModal } from './SapSearchHelpModal';
@@ -47,12 +48,14 @@ interface FieldCatalogEditorProps {
   spec: ProgramSpec;
   onChange: (updatedCatalog: AlvField[], updatedMockRows?: Record<string, any>[]) => void;
   onReorder?: (fromIndex: number, toIndex: number) => void;
+  onOpenAiExtract?: () => void;
 }
 
 export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
   spec,
   onChange,
   onReorder,
+  onOpenAiExtract,
 }) => {
   const [showSearchHelp, setShowSearchHelp] = useState(false);
   const [editingFieldIndex, setEditingFieldIndex] = useState<number | null>(null);
@@ -599,6 +602,18 @@ export const FieldCatalogEditor: React.FC<FieldCatalogEditorProps> = ({
           >
             <Copy className="w-4 h-4" />
           </button>
+
+          {onOpenAiExtract && (
+            <button
+              type="button"
+              onClick={onOpenAiExtract}
+              title="AI Suggest Columns from Logic"
+              aria-label="AI Suggest Columns from Logic"
+              className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-md transition-colors shadow-2xs cursor-pointer"
+            >
+              <GitPullRequestCreate className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Right: Validation Status & Column Count */}

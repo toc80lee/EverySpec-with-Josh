@@ -13,6 +13,7 @@ import {
   Box,
   Unlink,
   Pencil,
+  GitPullRequestCreate,
 } from 'lucide-react';
 import { SelectionParameter, SelectionKind, ProgramSpec, SapDataType } from '../types/sap';
 import { SapSearchHelpModal } from './SapSearchHelpModal';
@@ -45,6 +46,7 @@ interface SelectionScreenEditorProps {
     block_id?: string;
     radio_group?: string;
   }) => void;
+  onOpenAiExtract?: () => void;
 }
 
 const SAP_DATA_TYPES: { type: SapDataType; label: string; defaultLen: number }[] = [
@@ -93,6 +95,7 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
   spec,
   onChange,
   onAddParam,
+  onOpenAiExtract,
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBoxModal, setShowBoxModal] = useState(false);
@@ -1579,6 +1582,17 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
           >
             <Copy className="w-4 h-4 text-slate-500" />
           </button>
+          {onOpenAiExtract && (
+            <button
+              type="button"
+              onClick={onOpenAiExtract}
+              className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
+              title="AI Suggest Parameters from Logic"
+              aria-label="AI Suggest Parameters from Logic"
+            >
+              <GitPullRequestCreate className="w-4 h-4 text-indigo-600" />
+            </button>
+          )}
         </div>
 
         {/* Spreadsheet Hint */}

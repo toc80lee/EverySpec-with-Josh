@@ -389,6 +389,888 @@ ${currentValue ? currentValue.slice(0, 1200) : '(비어 있음)'}
   }
 });
 
+// API endpoint: AI Spec Copilot - Generate a complete SAP ALV ProgramSpec draft from natural-language requirements
+app.post('/api/generate-full-spec', async (req, res) => {
+  try {
+    const {
+      requirementPrompt,
+      module = 'AUTO',
+      sampleType = '01',
+      targetSapRelease = 'SAP S/4HANA 2023 / ECC 6.0',
+      programId = '',
+      tcode = '',
+    } = req.body || {};
+
+    if (!requirementPrompt || typeof requirementPrompt !== 'string' || !requirementPrompt.trim()) {
+      return res.status(400).json({ error: '프로그램 요구사항을 입력해 주세요.' });
+    }
+
+    const cleanSampleType = ['01', '02', '03', '04'].includes(String(sampleType)) ? String(sampleType) : '01';
+    const explicitModule =
+      module && module !== 'AUTO' ? String(module).toUpperCase() : '';
+
+    const systemPrompt = `You are a Principal SAP ERP ABAP Architect (20+ years across FI, CO, SD, MM, PP, HR, QM, PM).
+Convert a user's business requirement into a complete, realistic, simulation-ready SAP ALV Functional Specification JSON object.
+
+Strict SAP Standards & Rules:
+1. program_id & tcode MUST start with 'Z' or 'Y' (Customer Namespace, uppercase, no spaces). Example: ZSD_R_SO_DELAY / ZSD020.
+2. module must be one of: "SD", "MM", "FI", "CO", "PP", "HR", "QM", "PM", "BC".
+3. sample_type is "${cleanSampleType}" (01=Single ALV Grid, 02=Master-Detail 2-Grid, 03=Tree ALV Grid, 04=Multi-Dimensional Pivot).
+   If sample_type is "04", set cds_view_table to a valid CDS view or HANA table (e.g., "ACDOCA" or "I_SALESDOCUMENTITEM").
+4. selection_params: 4 to 7 realistic SAP selection inputs grouped into titled boxes using block_id ("b1", "b2") and block_title (e.g., "기본 조회 조건", "출력 및 처리 옵션").
+   Include PARAMETERS, SELECT_OPTION, and at least one RADIOBUTTON group (radio_group: "R1", datatype: "CHAR", length: 1, default_val: "X" on first radio) or CHECKBOX when appropriate.
+   Types allowed: "CHAR", "NUMC", "DATS", "TIMS", "CURR", "DEC", "UNIT", "INT4", "STRING".
+5. field_catalog: Start with ZICON (col_pos: 1, coltext: "Status", datatype: "CHAR", outputlen: 4, just: "C", key: true, icon_type: "LIGHTS"), followed by 6 to 9 authentic SAP DDIC columns.
+   Include appropriate key: true, hotspot: true + drilldown_tcode (e.g., VA03, ME23N, FB03, MM03, KS03), do_sum: true + cfieldname/qfieldname on CURR/DEC amount & quantity fields, and ref_table / ref_field.
+6. layout: { grid_title, zebra: true, sel_mode: "A", cwidth_opt: true, totals_only: false, excp_fname: "ZICON", excp_led: true, show_row_numbers: true }.
+7. custom_toolbar: 1 to 3 relevant custom user commands (e.g. { function: "POST", text: "전표 전기", quickinfo: "선택 행 일괄 처리", icon: "ICON_OKAY", disabled: false, visible: true, is_standard: false }).
+8. business_purpose & data_extraction_logic: Rich Korean markdown with SAP table names, joins, WHERE conditions referencing actual selection_params, LIGHTS rules (1=Green, 2=Yellow, 3=Red), and ALV event behaviors.
+9. test_cases: 2 to 3 concrete QA test scenarios (scenario, condition, expected).
+10. mock_rows: 5 realistic rows matching exact fieldnames in field_catalog (Korean corporate names, 10-digit SAP doc numbers, YYYY.MM.DD dates, KRW/USD, numeric amounts, ZICON values '1','2','3').
+11. If sample_type is "02", ALSO include item_grid: { grid_name: "Item ALV Grid", grid_title: "...", foreign_key: "...", layout: {...}, field_catalog: [...], mock_rows: [...] } where foreign_key matches a key column in header field_catalog and mock_rows share those foreign key values!
+12. data_flow: { title, mermaid_code (valid "graph TD; A[...] --> B{...}; ..."), node_details: { A: { label, markdown }, B: { ... } } }.
+13. detectedTables: array of SAP DDIC table names used (e.g. ["VBAK", "VBAP", "KNA1"]).
+
+Return ONLY valid JSON with those keys.`;
+
+    const userPrompt = `Business Requirement:
+${requirementPrompt.trim()}
+
+Constraints:
+- Requested Module: ${explicitModule || 'Auto-detect best SAP module'}
+- Sample Type: ${cleanSampleType}
+- Target SAP Release: ${targetSapRelease}
+- Preferred Program ID: ${programId ? String(programId).trim().toUpperCase() : '(auto-generate compliant Z* name)'}
+- Preferred T-Code: ${tcode ? String(tcode).trim().toUpperCase() : '(auto-generate compliant Z* T-Code)'}
+
+Generate the complete SAP Functional Specification JSON.`;
+
+    let rawDraft: any = null;
+    let source: 'ai' | 'fallback' = 'ai';
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: 'application/json',
+        },
+      });
+      const text = response.text?.trim() || '{}';
+      rawDraft = JSON.parse(text);
+    } catch (err: any) {
+      console.warn('Gemini full-spec generation issue, using intelligent SAP fallback:', err?.message);
+      source = 'fallback';
+    }
+
+    if (!rawDraft || typeof rawDraft !== 'object' || !Array.isArray(rawDraft.field_catalog) || rawDraft.field_catalog.length === 0) {
+      rawDraft = buildFullSpecFallback({
+        requirementPrompt: requirementPrompt.trim(),
+        module: explicitModule,
+        sampleType: cleanSampleType,
+        targetSapRelease,
+        programId,
+        tcode,
+      });
+      source = 'fallback';
+    }
+
+    const normalized = normalizeGeneratedFullSpec(rawDraft, {
+      requirementPrompt: requirementPrompt.trim(),
+      module: explicitModule,
+      sampleType: cleanSampleType,
+      targetSapRelease,
+      programId,
+      tcode,
+    });
+
+    return res.json({
+      spec: normalized.spec,
+      detectedTables: normalized.detectedTables,
+      source,
+    });
+  } catch (error: any) {
+    console.error('Full spec generation error:', error);
+    return res.status(500).json({
+      error: error?.message || 'AI 전체 사양서 생성 중 오류가 발생했습니다.',
+    });
+  }
+});
+
+// API endpoint: Reverse-extract missing Selection Screen Parameters & Field Catalog columns from Logic / Spec text
+app.post('/api/extract-spec-elements', async (req, res) => {
+  try {
+    const {
+      businessPurpose = '',
+      dataExtractionLogic = '',
+      module = 'SD',
+      sampleType = '01',
+      existingSelectionParams = [],
+      existingFieldCatalog = [],
+    } = req.body || {};
+
+    const combinedText = `${businessPurpose}\n${dataExtractionLogic}`.trim();
+    if (!combinedText) {
+      return res.status(400).json({ error: '분석할 업무 개요 또는 데이터 추출 로직이 비어 있습니다.' });
+    }
+
+    const existingParamNames = new Set(
+      (Array.isArray(existingSelectionParams) ? existingSelectionParams : [])
+        .map((p: any) => String(p?.name || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+    const existingFieldNames = new Set(
+      (Array.isArray(existingFieldCatalog) ? existingFieldCatalog : [])
+        .map((f: any) => String(f?.fieldname || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+
+    const systemPrompt = `You are a senior SAP ERP ABAP Architect analyzing an existing Functional Specification's [Business Purpose] and [Data Extraction & Logic].
+Your task is to reverse-extract MISSING SAP Selection Screen parameters and MISSING ALV Field Catalog columns implied or explicitly referenced in the specification text.
+
+Rules:
+1. NEVER suggest items that already exist in existingSelectionParams or existingFieldCatalog.
+2. Identify SAP tables referenced in the text (e.g., VBAK, VBAP, KNA1, EKKO, EKPO, MARA, MAKT, BKPF, BSEG, ACDOCA, CSKS, COEP, LIKP, LIPS, VBRK, VBRP, T001, custom Z* tables) and return them in "detectedTables".
+3. "suggestedSelectionParams": array of missing Selection Screen fields:
+   - kind: "PARAMETER" | "SELECT_OPTION" | "RADIOBUTTON" | "CHECKBOX"
+   - name: uppercase ABAP name (P_* or S_*, e.g. P_BUKRS, S_BUDAT, P_ONLY_ERR)
+   - text: Korean/English screen label (e.g. "회사코드 (Company Code)")
+   - datatype: "CHAR" | "NUMC" | "DATS" | "TIMS" | "CURR" | "DEC" | "UNIT" | "INT4"
+   - length: positive integer
+   - ref_table, ref_field: SAP DDIC table/field
+   - obligatory: boolean
+   - default_val: string
+   - block_title: concise box title (e.g. "기본 조회 조건" or "처리 옵션")
+   - radio_group: string (only if RADIOBUTTON, max 4 chars e.g. "R1")
+   - reason: short Korean explanation of why this input is needed based on the logic text
+4. "suggestedFieldCatalog": array of missing ALV Grid columns:
+   - fieldname: uppercase fieldname (e.g. KUNNR, NAME1, NETWR, WAERK, DMBTR, DIFF_DAYS)
+   - coltext: concise Korean/English column header
+   - datatype: "CHAR" | "NUMC" | "DATS" | "TIMS" | "CURR" | "DEC" | "UNIT" | "INT4"
+   - outputlen: positive integer
+   - just: "L" | "C" | "R"
+   - key: boolean
+   - hotspot: boolean
+   - drilldown_tcode: e.g. "VA03", "ME23N", "FB03" or ""
+   - do_sum: boolean (only for numeric CURR/DEC/INT4)
+   - cfieldname: e.g. "WAERK" or "WAERS" (if CURR)
+   - qfieldname: e.g. "MEINS" or "VRKME" (if quantity)
+   - ref_table, ref_field: SAP DDIC source
+   - emphasize: "" or "C300" / "C500" / "C600"
+   - reason: short Korean explanation of why this column is needed based on the logic text
+
+Return valid JSON:
+{
+  "detectedTables": string[],
+  "suggestedSelectionParams": [...],
+  "suggestedFieldCatalog": [...]
+}`;
+
+    const userPrompt = `SAP Module: ${module}
+Sample Type: ${sampleType}
+
+[Existing Selection Parameters]
+${Array.from(existingParamNames).join(', ') || '(None)'}
+
+[Existing Field Catalog Columns]
+${Array.from(existingFieldNames).join(', ') || '(None)'}
+
+[Business Purpose]
+${businessPurpose || '(Empty)'}
+
+[Data Extraction & Logic]
+${dataExtractionLogic || '(Empty)'}
+
+Extract missing Selection Screen items and missing ALV Field Catalog columns.`;
+
+    let extracted: any = null;
+    let source: 'ai' | 'fallback' = 'ai';
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: 'application/json',
+        },
+      });
+      extracted = JSON.parse(response.text?.trim() || '{}');
+    } catch (err: any) {
+      console.warn('Gemini reverse-extract issue, using rule-based SAP extractor:', err?.message);
+      source = 'fallback';
+    }
+
+    const fallback = extractSpecElementsFallback({
+      combinedText,
+      module: String(module || 'SD').toUpperCase(),
+      existingParamNames,
+      existingFieldNames,
+    });
+
+    const detectedTables: string[] = Array.from(
+      new Set([
+        ...((Array.isArray(extracted?.detectedTables) ? extracted.detectedTables : []).map((t: any) =>
+          String(t || '').trim().toUpperCase()
+        )),
+        ...fallback.detectedTables,
+      ])
+    ).filter(Boolean);
+
+    const rawParams = Array.isArray(extracted?.suggestedSelectionParams) && extracted.suggestedSelectionParams.length > 0
+      ? extracted.suggestedSelectionParams
+      : fallback.suggestedSelectionParams;
+
+    const rawFields = Array.isArray(extracted?.suggestedFieldCatalog) && extracted.suggestedFieldCatalog.length > 0
+      ? extracted.suggestedFieldCatalog
+      : fallback.suggestedFieldCatalog;
+
+    const seenParamNames = new Set(existingParamNames);
+    const suggestedSelectionParams = rawParams
+      .filter((p: any) => {
+        const name = String(p?.name || '').trim().toUpperCase();
+        if (!name || seenParamNames.has(name)) return false;
+        seenParamNames.add(name);
+        return true;
+      })
+      .map((p: any) => {
+        const kind = ['PARAMETER', 'SELECT_OPTION', 'RADIOBUTTON', 'CHECKBOX'].includes(p.kind)
+          ? p.kind
+          : String(p.name || '').toUpperCase().startsWith('S_')
+          ? 'SELECT_OPTION'
+          : 'PARAMETER';
+        const isToggle = kind === 'RADIOBUTTON' || kind === 'CHECKBOX';
+        const dt = isToggle ? 'CHAR' : normalizeSapDataTypeServer(p.datatype);
+        return {
+          kind,
+          name: String(p.name).trim().toUpperCase(),
+          text: String(p.text || p.name).trim(),
+          datatype: dt,
+          length: isToggle ? 1 : Math.max(1, Number(p.length) || 10),
+          ref_table: String(p.ref_table || '').trim().toUpperCase(),
+          ref_field: String(p.ref_field || '').trim().toUpperCase(),
+          obligatory: isToggle ? false : Boolean(p.obligatory),
+          default_val: String(p.default_val || '').trim(),
+          block_title: String(p.block_title || '조회 조건').trim(),
+          radio_group: kind === 'RADIOBUTTON' ? String(p.radio_group || 'R1').toUpperCase().slice(0, 4) : undefined,
+          reason: String(p.reason || '로직 조건 및 테이블 참조 기반 추천').trim(),
+        };
+      });
+
+    const seenFieldNames = new Set(existingFieldNames);
+    const suggestedFieldCatalog = rawFields
+      .filter((f: any) => {
+        const fn = String(f?.fieldname || '').trim().toUpperCase();
+        if (!fn || fn === 'ZICON' || seenFieldNames.has(fn)) return false;
+        seenFieldNames.add(fn);
+        return true;
+      })
+      .map((f: any) => {
+        const dt = normalizeSapDataTypeServer(f.datatype);
+        const isNumeric = dt === 'CURR' || dt === 'DEC' || dt === 'INT4';
+        return {
+          fieldname: String(f.fieldname).trim().toUpperCase(),
+          coltext: String(f.coltext || f.fieldname).trim(),
+          datatype: dt,
+          outputlen: Math.max(1, Number(f.outputlen) || (dt === 'CURR' ? 15 : dt === 'DATS' ? 10 : 12)),
+          just: ['L', 'C', 'R'].includes(f.just) ? f.just : isNumeric ? 'R' : dt === 'DATS' ? 'C' : 'L',
+          key: Boolean(f.key),
+          hotspot: Boolean(f.hotspot),
+          drilldown_tcode: f.hotspot ? String(f.drilldown_tcode || '').trim().toUpperCase() : '',
+          do_sum: isNumeric && Boolean(f.do_sum),
+          cfieldname: dt === 'CURR' ? String(f.cfieldname || 'WAERK').trim().toUpperCase() : '',
+          qfieldname: String(f.qfieldname || '').trim().toUpperCase(),
+          ref_table: String(f.ref_table || '').trim().toUpperCase(),
+          ref_field: String(f.ref_field || '').trim().toUpperCase(),
+          emphasize: String(f.emphasize || '').trim().toUpperCase(),
+          reason: String(f.reason || '데이터 추출 로직 출력 항목 기반 추천').trim(),
+        };
+      });
+
+    return res.json({
+      detectedTables,
+      suggestedSelectionParams,
+      suggestedFieldCatalog,
+      source,
+    });
+  } catch (error: any) {
+    console.error('Reverse extraction error:', error);
+    return res.status(500).json({
+      error: error?.message || 'AI 역추출 분석 중 오류가 발생했습니다.',
+    });
+  }
+});
+
+function normalizeSapDataTypeServer(dt: any): 'CHAR' | 'NUMC' | 'DATS' | 'TIMS' | 'CURR' | 'DEC' | 'UNIT' | 'INT4' | 'STRING' {
+  const upper = String(dt || 'CHAR').trim().toUpperCase();
+  if (['CHAR', 'NUMC', 'DATS', 'TIMS', 'CURR', 'DEC', 'UNIT', 'INT4', 'STRING'].includes(upper)) {
+    return upper as any;
+  }
+  if (upper === 'QUAN' || upper === 'FLTP') return 'DEC';
+  if (upper === 'CUKY') return 'CHAR';
+  return 'CHAR';
+}
+
+function normalizeGeneratedFullSpec(raw: any, opts: {
+  requirementPrompt: string;
+  module: string;
+  sampleType: string;
+  targetSapRelease: string;
+  programId: string;
+  tcode: string;
+}) {
+  const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+  const resolvedModule = validModules.includes(String(raw.module || '').toUpperCase())
+    ? String(raw.module).toUpperCase()
+    : opts.module || 'SD';
+
+  const ensureCustomerNs = (val: string, prefix: string, fallbackVal: string) => {
+    const clean = String(val || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+    if (!clean) return fallbackVal;
+    if (clean.startsWith('Z') || clean.startsWith('Y')) return clean.slice(0, 30);
+    return `${prefix}${clean}`.slice(0, 30);
+  };
+
+  const finalProgramId = ensureCustomerNs(
+    opts.programId || raw.program_id,
+    `Z${resolvedModule}_R_`,
+    `Z${resolvedModule}R0010`
+  );
+  const finalTcode = ensureCustomerNs(
+    opts.tcode || raw.tcode,
+    `Z${resolvedModule}`,
+    `Z${resolvedModule}010`
+  ).slice(0, 20);
+
+  const nowTs = Date.now();
+  const blockMap = new Map<string, string>();
+
+  const selection_params = (Array.isArray(raw.selection_params) ? raw.selection_params : []).map((p: any, idx: number) => {
+    const kind = ['PARAMETER', 'SELECT_OPTION', 'RADIOBUTTON', 'CHECKBOX'].includes(p?.kind)
+      ? p.kind
+      : String(p?.name || '').toUpperCase().startsWith('S_')
+      ? 'SELECT_OPTION'
+      : 'PARAMETER';
+    const isToggle = kind === 'RADIOBUTTON' || kind === 'CHECKBOX';
+    const dt = isToggle ? 'CHAR' : normalizeSapDataTypeServer(p?.datatype);
+    const blockTitle = String(p?.block_title || '기본 조회 조건').trim();
+    let blockId = String(p?.block_id || '').trim().toLowerCase();
+    if (blockTitle) {
+      if (!blockId) {
+        if (!blockMap.has(blockTitle)) {
+          blockMap.set(blockTitle, `b${blockMap.size + 1}`);
+        }
+        blockId = blockMap.get(blockTitle)!;
+      } else {
+        blockMap.set(blockTitle, blockId);
+      }
+    }
+    return {
+      id: `ai-p-${nowTs}-${idx}`,
+      kind,
+      name: String(p?.name || (kind === 'SELECT_OPTION' ? `S_FLD${idx + 1}` : `P_FLD${idx + 1}`)).trim().toUpperCase(),
+      text: String(p?.text || `항목 ${idx + 1}`).trim(),
+      ref_table: String(p?.ref_table || '').trim().toUpperCase(),
+      ref_field: String(p?.ref_field || '').trim().toUpperCase(),
+      datatype: dt,
+      length: isToggle ? 1 : Math.max(1, Number(p?.length) || (dt === 'DATS' ? 8 : dt === 'CURR' ? 15 : 10)),
+      obligatory: isToggle ? false : Boolean(p?.obligatory),
+      default_val: String(p?.default_val ?? '').trim(),
+      block_title: blockTitle || undefined,
+      block_id: blockId || undefined,
+      radio_group: kind === 'RADIOBUTTON' ? String(p?.radio_group || 'R1').toUpperCase().slice(0, 4) : undefined,
+      low: String(p?.low ?? p?.default_val ?? '').trim(),
+      high: String(p?.high ?? '').trim(),
+      sign: 'I' as const,
+      option: kind === 'SELECT_OPTION' && p?.high ? ('BT' as const) : ('EQ' as const),
+    };
+  });
+
+  const rawFields = Array.isArray(raw.field_catalog) ? raw.field_catalog : [];
+  const hasZicon = rawFields.some((f: any) => String(f?.fieldname || '').toUpperCase() === 'ZICON');
+  const combinedRawFields = hasZicon
+    ? rawFields
+    : [
+        {
+          fieldname: 'ZICON',
+          coltext: 'Status',
+          datatype: 'CHAR',
+          outputlen: 4,
+          just: 'C',
+          key: true,
+          icon_type: 'LIGHTS',
+        },
+        ...rawFields,
+      ];
+
+  const field_catalog = combinedRawFields.map((f: any, idx: number) => {
+    const fn = String(f?.fieldname || `FLD_${idx + 1}`).trim().toUpperCase();
+    const isZicon = fn === 'ZICON';
+    const dt = isZicon ? 'CHAR' : normalizeSapDataTypeServer(f?.datatype);
+    const isNumeric = dt === 'CURR' || dt === 'DEC' || dt === 'INT4';
+    return {
+      id: `ai-f-${nowTs}-${idx}`,
+      col_pos: idx + 1,
+      fieldname: fn,
+      coltext: String(f?.coltext || fn).trim(),
+      datatype: dt,
+      outputlen: isZicon ? 4 : Math.max(1, Number(f?.outputlen) || (dt === 'CURR' ? 15 : dt === 'DATS' ? 10 : 12)),
+      just: isZicon ? 'C' : (['L', 'C', 'R'].includes(f?.just) ? f.just : isNumeric ? 'R' : dt === 'DATS' ? 'C' : 'L'),
+      key: isZicon ? true : Boolean(f?.key),
+      hotspot: isZicon ? false : Boolean(f?.hotspot),
+      checkbox: !isZicon && dt === 'CHAR' && Number(f?.outputlen) === 1 ? Boolean(f?.checkbox) : false,
+      edit: isZicon ? false : Boolean(f?.edit),
+      do_sum: !isZicon && isNumeric ? Boolean(f?.do_sum) : false,
+      emphasize: isZicon ? '' : String(f?.emphasize || '').trim().toUpperCase(),
+      icon_type: isZicon ? 'LIGHTS' : undefined,
+      cfieldname: dt === 'CURR' ? String(f?.cfieldname || 'WAERK').trim().toUpperCase() : undefined,
+      qfieldname: f?.qfieldname ? String(f.qfieldname).trim().toUpperCase() : undefined,
+      ref_table: String(f?.ref_table || '').trim().toUpperCase(),
+      ref_field: String(f?.ref_field || '').trim().toUpperCase(),
+      drilldown_tcode: f?.hotspot && f?.drilldown_tcode ? String(f.drilldown_tcode).trim().toUpperCase() : undefined,
+    };
+  });
+
+  const fallbackRows = generateFallbackSapRows(field_catalog, 5);
+  const aiRows = Array.isArray(raw.mock_rows) && raw.mock_rows.length > 0 ? raw.mock_rows : [];
+  const mock_rows = (aiRows.length > 0 ? aiRows : fallbackRows).map((row: any, rIdx: number) => {
+    const out: Record<string, any> = {};
+    field_catalog.forEach((f: any) => {
+      const val = row?.[f.fieldname];
+      out[f.fieldname] =
+        val !== undefined && val !== null && val !== ''
+          ? val
+          : fallbackRows[rIdx % fallbackRows.length]?.[f.fieldname] ?? '';
+    });
+    return out;
+  });
+
+  const layout = {
+    grid_title: String(raw?.layout?.grid_title || raw.title || 'ALV Grid Report').slice(0, 70),
+    zebra: raw?.layout?.zebra !== undefined ? Boolean(raw.layout.zebra) : true,
+    sel_mode: ['A', 'B', 'C', 'D', 'SPACE'].includes(raw?.layout?.sel_mode) ? raw.layout.sel_mode : 'A',
+    cwidth_opt: raw?.layout?.cwidth_opt !== undefined ? Boolean(raw.layout.cwidth_opt) : true,
+    totals_only: Boolean(raw?.layout?.totals_only),
+    excp_fname: 'ZICON',
+    excp_led: true,
+    show_row_numbers: raw?.layout?.show_row_numbers !== undefined ? Boolean(raw.layout.show_row_numbers) : true,
+  };
+
+  const custom_toolbar = (Array.isArray(raw.custom_toolbar) ? raw.custom_toolbar : []).map((b: any, idx: number) => ({
+    id: `ai-tb-${nowTs}-${idx}`,
+    function: String(b?.function || `FC0${idx + 1}`).trim().toUpperCase(),
+    text: String(b?.text || '실행').trim(),
+    quickinfo: String(b?.quickinfo || b?.text || '사용자 정의 기능').trim(),
+    icon: String(b?.icon || 'ICON_EXECUTE_OBJECT').trim(),
+    disabled: false,
+    visible: true,
+    is_standard: false,
+  }));
+
+  const test_cases = (Array.isArray(raw.test_cases) && raw.test_cases.length > 0
+    ? raw.test_cases
+    : [
+        {
+          scenario: '정상 조회 및 합계 검증',
+          condition: '기본 조회 조건 입력 후 실행 (F8)',
+          expected: '조건에 일치하는 데이터가 ALV 그리드에 출력되고 금액 합계가 정확히 계산됨',
+        },
+        {
+          scenario: '핫스팟 드릴다운 확인',
+          condition: 'ALV 내 주요 전표번호 핫스팟 클릭',
+          expected: '연계된 SAP 표준 트랜잭션(T-Code) 상세 조회 동작 확인',
+        },
+      ]
+  ).map((tc: any, idx: number) => ({
+    id: `ai-tc-${nowTs}-${idx}`,
+    scenario: String(tc?.scenario || `시나리오 ${idx + 1}`),
+    condition: String(tc?.condition || '조회 조건 입력 후 실행'),
+    expected: String(tc?.expected || '정상 결과 출력'),
+  }));
+
+  let item_grid = undefined;
+  if (opts.sampleType === '02') {
+    const rawItem = raw.item_grid || {};
+    const firstKeyField =
+      field_catalog.find((f: any) => f.key && f.fieldname !== 'ZICON')?.fieldname || 'DOC_NO';
+    const rawItemFields =
+      Array.isArray(rawItem.field_catalog) && rawItem.field_catalog.length > 0
+        ? rawItem.field_catalog
+        : [
+            { fieldname: firstKeyField, coltext: '전표번호', datatype: 'CHAR', outputlen: 10, just: 'C', key: true },
+            { fieldname: 'POSNR', coltext: '품목번호', datatype: 'NUMC', outputlen: 6, just: 'C', key: true },
+            { fieldname: 'MATNR', coltext: '자재코드', datatype: 'CHAR', outputlen: 18, just: 'L', hotspot: true, drilldown_tcode: 'MM03' },
+            { fieldname: 'MAKTX', coltext: '자재내역', datatype: 'CHAR', outputlen: 40, just: 'L' },
+            { fieldname: 'MENGE', coltext: '수량', datatype: 'DEC', outputlen: 13, just: 'R', do_sum: true, qfieldname: 'MEINS' },
+            { fieldname: 'MEINS', coltext: '단위', datatype: 'UNIT', outputlen: 3, just: 'C' },
+            { fieldname: 'NETWR', coltext: '품목금액', datatype: 'CURR', outputlen: 15, just: 'R', do_sum: true, cfieldname: 'WAERK' },
+            { fieldname: 'WAERK', coltext: '통화', datatype: 'CHAR', outputlen: 5, just: 'C' },
+          ];
+
+    const itemCatalog = rawItemFields.map((f: any, idx: number) => {
+      const fn = String(f?.fieldname || `IFLD_${idx + 1}`).trim().toUpperCase();
+      const dt = normalizeSapDataTypeServer(f?.datatype);
+      const isNumeric = dt === 'CURR' || dt === 'DEC' || dt === 'INT4';
+      return {
+        id: `ai-if-${nowTs}-${idx}`,
+        col_pos: idx + 1,
+        fieldname: fn,
+        coltext: String(f?.coltext || fn).trim(),
+        datatype: dt,
+        outputlen: Math.max(1, Number(f?.outputlen) || 12),
+        just: ['L', 'C', 'R'].includes(f?.just) ? f.just : isNumeric ? 'R' : 'L',
+        key: Boolean(f?.key),
+        hotspot: Boolean(f?.hotspot),
+        checkbox: false,
+        edit: Boolean(f?.edit),
+        do_sum: isNumeric ? Boolean(f?.do_sum) : false,
+        emphasize: String(f?.emphasize || '').trim().toUpperCase(),
+        cfieldname: dt === 'CURR' ? String(f?.cfieldname || 'WAERK').trim().toUpperCase() : undefined,
+        qfieldname: f?.qfieldname ? String(f.qfieldname).trim().toUpperCase() : undefined,
+        ref_table: String(f?.ref_table || '').trim().toUpperCase(),
+        ref_field: String(f?.ref_field || '').trim().toUpperCase(),
+        drilldown_tcode: f?.hotspot && f?.drilldown_tcode ? String(f.drilldown_tcode).trim().toUpperCase() : undefined,
+      };
+    });
+
+    const fk = String(rawItem.foreign_key || firstKeyField).trim().toUpperCase();
+    const fallbackItemRows = generateFallbackSapRows(itemCatalog, 6);
+    const aiItemRows = Array.isArray(rawItem.mock_rows) && rawItem.mock_rows.length > 0 ? rawItem.mock_rows : fallbackItemRows;
+    const headerKeys = mock_rows.map((r: any) => r[fk]).filter(Boolean);
+    const itemMockRows = aiItemRows.map((row: any, rIdx: number) => {
+      const out: Record<string, any> = {};
+      itemCatalog.forEach((f: any) => {
+        out[f.fieldname] =
+          row?.[f.fieldname] ?? fallbackItemRows[rIdx % fallbackItemRows.length]?.[f.fieldname] ?? '';
+      });
+      if (headerKeys.length > 0 && itemCatalog.some((f: any) => f.fieldname === fk)) {
+        out[fk] = headerKeys[rIdx % headerKeys.length];
+      }
+      return out;
+    });
+
+    item_grid = {
+      grid_name: String(rawItem.grid_name || 'Item ALV Grid'),
+      grid_title: String(rawItem.grid_title || '상세 품목 ALV Grid'),
+      foreign_key: fk,
+      layout: {
+        grid_title: String(rawItem?.layout?.grid_title || '상세 품목 내역 (Item Details)'),
+        zebra: true,
+        sel_mode: 'A',
+        cwidth_opt: true,
+        show_row_numbers: true,
+      },
+      field_catalog: itemCatalog,
+      mock_rows: itemMockRows,
+    };
+  }
+
+  const detectedTables: string[] = Array.from(
+    new Set([
+      ...(Array.isArray(raw.detectedTables) ? raw.detectedTables : []),
+      ...field_catalog.map((f: any) => f.ref_table).filter(Boolean),
+      ...selection_params.map((p: any) => p.ref_table).filter(Boolean),
+    ])
+  )
+    .map((t) => String(t).trim().toUpperCase())
+    .filter(Boolean);
+
+  const mermaidCode =
+    typeof raw?.data_flow?.mermaid_code === 'string' && raw.data_flow.mermaid_code.includes('graph')
+      ? raw.data_flow.mermaid_code
+      : `graph TD;
+  A[시작 및 권한 점검] --> B{선택화면 검증};
+  B -->|정상| C[${detectedTables.slice(0, 3).join(', ') || resolvedModule} 데이터 추출];
+  B -->|오류| E[오류 메시지 출력];
+  C --> D[신호등 및 ALV 가공];
+  D --> F[ALV Grid 출력 및 이벤트];`;
+
+  const nodeDetails =
+    raw?.data_flow?.node_details && typeof raw.data_flow.node_details === 'object'
+      ? raw.data_flow.node_details
+      : {
+          A: { label: '시작 및 권한 점검', markdown: `### 시작\n- \`${finalProgramId}\` 실행 권한 및 선택화면 기본값 초기화` },
+          B: { label: '선택화면 검증', markdown: `### 입력 검증\n- 필수 파라미터 및 기간 범위 유효성 점검` },
+          C: { label: '데이터 추출', markdown: `### DB 조회\n- 대상 테이블: ${detectedTables.map((t) => `\`${t}\``).join(', ') || resolvedModule}` },
+          D: { label: '신호등 및 ALV 가공', markdown: `### 데이터 가공\n- 상태별 신호등(\`ZICON\`) 부여 및 금액/수량 집계` },
+          F: { label: 'ALV Grid 출력', markdown: `### 화면 출력\n- \`CL_GUI_ALV_GRID\` 바인딩 및 드릴다운/커스텀 툴바 처리` },
+        };
+
+  return {
+    detectedTables,
+    spec: {
+      id: `spec-ai-${nowTs}`,
+      sample_type: opts.sampleType,
+      program_id: finalProgramId,
+      tcode: finalTcode,
+      title: String(raw.title || opts.requirementPrompt.slice(0, 48)).trim(),
+      module: resolvedModule as any,
+      author: 'Josh Lee',
+      cds_view_table:
+        opts.sampleType === '04'
+          ? String(raw.cds_view_table || detectedTables[0] || 'ACDOCA').trim().toUpperCase()
+          : undefined,
+      created_date: new Date().toISOString().slice(0, 10),
+      target_sap_release: opts.targetSapRelease,
+      program_type: 'REPORT' as const,
+      business_purpose: String(raw.business_purpose || opts.requirementPrompt).trim(),
+      data_extraction_logic: String(raw.data_extraction_logic || '').trim(),
+      data_flow: {
+        title: `${finalProgramId} Data Flow Diagram`,
+        mermaid_code: mermaidCode,
+        node_details: nodeDetails,
+        active_node_id: 'A',
+      },
+      selection_params,
+      field_catalog,
+      layout,
+      custom_toolbar,
+      test_cases,
+      mock_rows,
+      item_grid,
+    },
+  };
+}
+
+function buildFullSpecFallback(opts: {
+  requirementPrompt: string;
+  module: string;
+  sampleType: string;
+  targetSapRelease: string;
+  programId: string;
+  tcode: string;
+}) {
+  const txt = opts.requirementPrompt.toUpperCase();
+  const detectedMod = opts.module
+    ? opts.module
+    : txt.includes('구매') || txt.includes('발주') || txt.includes('자재') || txt.includes('입고') || txt.includes('PO') || txt.includes('EKKO')
+    ? 'MM'
+    : txt.includes('회계') || txt.includes('전표') || txt.includes('채권') || txt.includes('미결') || txt.includes('세금') || txt.includes('BKPF') || txt.includes('FI')
+    ? 'FI'
+    : txt.includes('원가') || txt.includes('코스트') || txt.includes('예산') || txt.includes('실적') || txt.includes('CO')
+    ? 'CO'
+    : txt.includes('생산') || txt.includes('작업지시') || txt.includes('PP')
+    ? 'PP'
+    : 'SD';
+
+  if (detectedMod === 'MM') {
+    return {
+      program_id: opts.programId || 'ZMM_R_PO_MONITOR',
+      tcode: opts.tcode || 'ZMM010',
+      title: opts.requirementPrompt.slice(0, 42) || '구매오더 입고 및 납기 지연 모니터링',
+      module: 'MM',
+      detectedTables: ['EKKO', 'EKPO', 'LFA1', 'MARA', 'EKBE'],
+      business_purpose: `### 개발 목적 및 업무 배경\n- **요구사항 요약**: ${opts.requirementPrompt}\n- 구매오더(\`EKKO\`/\`EKPO\`)와 입고이력(\`EKBE\`)을 실시간으로 비교하여 납기 지연 및 미입고 품목을 즉시 식별합니다.`,
+      data_extraction_logic: `1. **주요 테이블**: \`EKKO\`(구매오더 헤더), \`EKPO\`(품목), \`LFA1\`(공급업체), \`MARA\`(자재), \`EKBE\`(입고이력)\n2. **조회 조건**: \`EKKO~BUKRS = P_BUKRS\`, \`EKKO~EBELN IN S_EBELN\`, \`EKKO~BEDAT IN S_BEDAT\`, \`EKPO~WERKS IN S_WERKS\`\n3. **상태 판정**:\n   - \`ZICON = '3'\`: 납기예정일 경과 및 미입고 잔량 > 0\n   - \`ZICON = '2'\`: 일부 입고 완료\n   - \`ZICON = '1'\`: 전량 입고 완료`,
+      selection_params: [
+        { kind: 'PARAMETER', name: 'P_BUKRS', text: '회사코드 (Company Code)', ref_table: 'EKKO', ref_field: 'BUKRS', datatype: 'CHAR', length: 4, obligatory: true, default_val: '1000', block_title: '기본 조회 조건' },
+        { kind: 'SELECT_OPTION', name: 'S_WERKS', text: '플랜트 (Plant)', ref_table: 'EKPO', ref_field: 'WERKS', datatype: 'CHAR', length: 4, obligatory: false, default_val: '1000', block_title: '기본 조회 조건' },
+        { kind: 'SELECT_OPTION', name: 'S_BEDAT', text: '발주일자 (PO Date)', ref_table: 'EKKO', ref_field: 'BEDAT', datatype: 'DATS', length: 8, obligatory: false, default_val: '2026.10.01', block_title: '기본 조회 조건' },
+        { kind: 'SELECT_OPTION', name: 'S_EBELN', text: '구매오더 (PO Number)', ref_table: 'EKKO', ref_field: 'EBELN', datatype: 'CHAR', length: 10, obligatory: false, default_val: '', block_title: '기본 조회 조건' },
+        { kind: 'RADIOBUTTON', name: 'P_ALL', text: '전체 발주 건', datatype: 'CHAR', length: 1, default_val: 'X', block_title: '조회 옵션', radio_group: 'R1' },
+        { kind: 'RADIOBUTTON', name: 'P_OPEN', text: '미입고/지연 건만', datatype: 'CHAR', length: 1, default_val: '', block_title: '조회 옵션', radio_group: 'R1' },
+      ],
+      field_catalog: [
+        { fieldname: 'ZICON', coltext: 'Status', datatype: 'CHAR', outputlen: 4, just: 'C', key: true, icon_type: 'LIGHTS' },
+        { fieldname: 'EBELN', coltext: '구매오더', datatype: 'CHAR', outputlen: 10, just: 'C', key: true, hotspot: true, drilldown_tcode: 'ME23N', ref_table: 'EKKO', ref_field: 'EBELN' },
+        { fieldname: 'BEDAT', coltext: '발주일자', datatype: 'DATS', outputlen: 10, just: 'C', ref_table: 'EKKO', ref_field: 'BEDAT' },
+        { fieldname: 'LIFNR_NM', coltext: '공급업체명', datatype: 'CHAR', outputlen: 30, just: 'L', ref_table: 'LFA1', ref_field: 'NAME1' },
+        { fieldname: 'MATNR', coltext: '자재코드', datatype: 'CHAR', outputlen: 18, just: 'L', hotspot: true, drilldown_tcode: 'MM03', ref_table: 'EKPO', ref_field: 'MATNR' },
+        { fieldname: 'MENGE', coltext: '발주수량', datatype: 'DEC', outputlen: 13, just: 'R', do_sum: true, qfieldname: 'MEINS', ref_table: 'EKPO', ref_field: 'MENGE' },
+        { fieldname: 'MEINS', coltext: '단위', datatype: 'UNIT', outputlen: 3, just: 'C', ref_table: 'EKPO', ref_field: 'MEINS' },
+        { fieldname: 'NETWR', coltext: '발주금액', datatype: 'CURR', outputlen: 15, just: 'R', do_sum: true, cfieldname: 'WAERS', ref_table: 'EKPO', ref_field: 'NETWR' },
+        { fieldname: 'WAERS', coltext: '통화', datatype: 'CHAR', outputlen: 5, just: 'C', ref_table: 'EKKO', ref_field: 'WAERS' },
+      ],
+      custom_toolbar: [
+        { function: 'MIGO', text: '입고처리', quickinfo: '선택 구매오더 입고 화면 이동(MIGO)', icon: 'ICON_GOODS_RECEIPT' },
+        { function: 'REFRESH', text: '재조회', quickinfo: '최신 발주 현황 갱신', icon: 'ICON_REFRESH' },
+      ],
+    };
+  }
+
+  if (detectedMod === 'FI') {
+    return {
+      program_id: opts.programId || 'ZFI_R_AR_AGING',
+      tcode: opts.tcode || 'ZFI010',
+      title: opts.requirementPrompt.slice(0, 42) || '거래처별 채권/미결 전표 현황 리포트',
+      module: 'FI',
+      detectedTables: ['BKPF', 'BSEG', 'BSID', 'KNA1', 'T001'],
+      business_purpose: `### 개발 목적 및 업무 배경\n- **요구사항 요약**: ${opts.requirementPrompt}\n- 회계전표(\`BKPF\`/\`BSEG\`) 및 고객 미결 항목(\`BSID\`)을 집계하여 기한 경과 채권 및 위험 거래처를 모니터링합니다.`,
+      data_extraction_logic: `1. **주요 테이블**: \`BKPF\`(전표 헤더), \`BSID\`(고객 미결), \`KNA1\`(고객 마스터), \`T001\`(회사코드)\n2. **조회 조건**: \`BUKRS = P_BUKRS\`, \`BUDAT IN S_BUDAT\`, \`KUNNR IN S_KUNNR\`\n3. **상태 판정**:\n   - \`ZICON = '3'\`: 만기일 30일 이상 연체\n   - \`ZICON = '2'\`: 만기 도래 예정(7일 이내)\n   - \`ZICON = '1'\`: 정상 미결/반제 완료`,
+      selection_params: [
+        { kind: 'PARAMETER', name: 'P_BUKRS', text: '회사코드 (Company Code)', ref_table: 'BKPF', ref_field: 'BUKRS', datatype: 'CHAR', length: 4, obligatory: true, default_val: '1000', block_title: '기본 조회 조건' },
+        { kind: 'SELECT_OPTION', name: 'S_BUDAT', text: '전기일자 (Posting Date)', ref_table: 'BKPF', ref_field: 'BUDAT', datatype: 'DATS', length: 8, obligatory: false, default_val: '2026.10.01', block_title: '기본 조회 조건' },
+        { kind: 'SELECT_OPTION', name: 'S_KUNNR', text: '고객코드 (Customer)', ref_table: 'BSID', ref_field: 'KUNNR', datatype: 'CHAR', length: 10, obligatory: false, default_val: '', block_title: '기본 조회 조건' },
+        { kind: 'CHECKBOX', name: 'P_OPEN', text: '미결 항목(Open Item)만 조회', datatype: 'CHAR', length: 1, default_val: 'X', block_title: '조회 옵션' },
+      ],
+      field_catalog: [
+        { fieldname: 'ZICON', coltext: 'Status', datatype: 'CHAR', outputlen: 4, just: 'C', key: true, icon_type: 'LIGHTS' },
+        { fieldname: 'BELNR', coltext: '회계전표', datatype: 'CHAR', outputlen: 10, just: 'C', key: true, hotspot: true, drilldown_tcode: 'FB03', ref_table: 'BKPF', ref_field: 'BELNR' },
+        { fieldname: 'BUDAT', coltext: '전기일자', datatype: 'DATS', outputlen: 10, just: 'C', ref_table: 'BKPF', ref_field: 'BUDAT' },
+        { fieldname: 'NAME1', coltext: '거래처명', datatype: 'CHAR', outputlen: 35, just: 'L', ref_table: 'KNA1', ref_field: 'NAME1' },
+        { fieldname: 'DMBTR', coltext: '원화금액', datatype: 'CURR', outputlen: 15, just: 'R', do_sum: true, cfieldname: 'WAERS', ref_table: 'BSEG', ref_field: 'DMBTR' },
+        { fieldname: 'WAERS', coltext: '통화', datatype: 'CHAR', outputlen: 5, just: 'C', ref_table: 'BKPF', ref_field: 'WAERS' },
+        { fieldname: 'SGTXT', coltext: '전표적요', datatype: 'CHAR', outputlen: 40, just: 'L', ref_table: 'BSEG', ref_field: 'SGTXT' },
+      ],
+      custom_toolbar: [
+        { function: 'CLEAR', text: '일괄반제', quickinfo: '선택 미결 항목 반제 시뮬레이션', icon: 'ICON_OKAY' },
+      ],
+    };
+  }
+
+  return {
+    program_id: opts.programId || `Z${detectedMod}_R_MONITOR`,
+    tcode: opts.tcode || `Z${detectedMod}010`,
+    title: opts.requirementPrompt.slice(0, 42) || '영업 오더 진행 및 출하 현황 모니터링',
+    module: detectedMod,
+    detectedTables: ['VBAK', 'VBAP', 'KNA1', 'LIKP'],
+    business_purpose: `### 개발 목적 및 업무 배경\n- **요구사항 요약**: ${opts.requirementPrompt}\n- 영업 전표 헤더(\`VBAK\`)와 품목(\`VBAP\`), 고객(\`KNA1\`) 데이터를 실시간 연계하여 출하 및 매출 현황을 조회합니다.`,
+    data_extraction_logic: `1. **주요 테이블**: \`VBAK\`(판매오더 헤더), \`VBAP\`(품목), \`KNA1\`(고객 마스터), \`LIKP\`(납품 헤더)\n2. **조회 조건**: \`VBAK~VKORG = P_VKORG\`, \`VBAK~ERDAT IN S_ERDAT\`, \`VBAK~VBELN IN S_VBELN\`\n3. **상태 판정**:\n   - \`ZICON = '3'\`: 납품 보류 또는 여신 블록\n   - \`ZICON = '2'\`: 일부 출하 진행 중\n   - \`ZICON = '1'\`: 출하 및 청구 완료`,
+    selection_params: [
+      { kind: 'PARAMETER', name: 'P_VKORG', text: '영업조직 (Sales Org)', ref_table: 'VBAK', ref_field: 'VKORG', datatype: 'CHAR', length: 4, obligatory: true, default_val: '1000', block_title: '기본 조회 조건' },
+      { kind: 'SELECT_OPTION', name: 'S_ERDAT', text: '전표일자 (Doc Date)', ref_table: 'VBAK', ref_field: 'ERDAT', datatype: 'DATS', length: 8, obligatory: false, default_val: '2026.10.01', block_title: '기본 조회 조건' },
+      { kind: 'SELECT_OPTION', name: 'S_VBELN', text: '판매오더 (Sales Order)', ref_table: 'VBAK', ref_field: 'VBELN', datatype: 'CHAR', length: 10, obligatory: false, default_val: '', block_title: '기본 조회 조건' },
+      { kind: 'RADIOBUTTON', name: 'P_ALL', text: '전체 오더', datatype: 'CHAR', length: 1, default_val: 'X', block_title: '조회 옵션', radio_group: 'R1' },
+      { kind: 'RADIOBUTTON', name: 'P_DELAY', text: '지연/보류 오더만', datatype: 'CHAR', length: 1, default_val: '', block_title: '조회 옵션', radio_group: 'R1' },
+    ],
+    field_catalog: [
+      { fieldname: 'ZICON', coltext: 'Status', datatype: 'CHAR', outputlen: 4, just: 'C', key: true, icon_type: 'LIGHTS' },
+      { fieldname: 'VBELN', coltext: '판매오더', datatype: 'CHAR', outputlen: 10, just: 'C', key: true, hotspot: true, drilldown_tcode: 'VA03', ref_table: 'VBAK', ref_field: 'VBELN' },
+      { fieldname: 'ERDAT', coltext: '전표일자', datatype: 'DATS', outputlen: 10, just: 'C', ref_table: 'VBAK', ref_field: 'ERDAT' },
+      { fieldname: 'NAME1', coltext: '고객명', datatype: 'CHAR', outputlen: 35, just: 'L', ref_table: 'KNA1', ref_field: 'NAME1' },
+      { fieldname: 'NETWR', coltext: '공급가액', datatype: 'CURR', outputlen: 15, just: 'R', do_sum: true, cfieldname: 'WAERK', ref_table: 'VBAK', ref_field: 'NETWR' },
+      { fieldname: 'WAERK', coltext: '통화', datatype: 'CHAR', outputlen: 5, just: 'C', ref_table: 'VBAK', ref_field: 'WAERK' },
+    ],
+    custom_toolbar: [
+      { function: 'POST', text: '출하전기', quickinfo: '선택 오더 출고 처리', icon: 'ICON_OKAY' },
+    ],
+  };
+}
+
+function extractSpecElementsFallback(opts: {
+  combinedText: string;
+  module: string;
+  existingParamNames: Set<string>;
+  existingFieldNames: Set<string>;
+}) {
+  const upper = opts.combinedText.toUpperCase();
+  const knownTables = [
+    'VBAK', 'VBAP', 'KNA1', 'LIKP', 'LIPS', 'VBRK', 'VBRP', 'VBUK', 'VBUP',
+    'EKKO', 'EKPO', 'EKBE', 'MARA', 'MAKT', 'MARC', 'MARD', 'LFA1',
+    'BKPF', 'BSEG', 'BSID', 'BSIK', 'ACDOCA', 'SKA1', 'SKAT', 'T001',
+    'CSKS', 'CSKT', 'COEP', 'COSP', 'SETNODE', 'SETLEAF',
+    'AFKO', 'AFPO', 'AUFK', 'QALS', 'PA0001',
+  ];
+
+  const detectedTables = knownTables.filter((t) => new RegExp(`\\b${t}\\b`).test(upper));
+  // Detect custom Z*/Y* tables mentioned in text
+  const customMatches = upper.match(/\b[ZY][A-Z0-9_]{3,15}\b/g) || [];
+  customMatches.forEach((m) => {
+    if (!m.startsWith('ZICON') && !m.startsWith('Z_R') && !detectedTables.includes(m)) {
+      if (m.includes('T') || upper.includes(`TABLE ${m}`) || upper.includes(`테이블`) ) {
+        detectedTables.push(m);
+      }
+    }
+  });
+
+  const suggestedSelectionParams: any[] = [];
+  const suggestedFieldCatalog: any[] = [];
+
+  const maybeAddParam = (item: any) => {
+    if (!opts.existingParamNames.has(item.name) && !suggestedSelectionParams.some((x) => x.name === item.name)) {
+      suggestedSelectionParams.push(item);
+    }
+  };
+  const maybeAddField = (item: any) => {
+    if (!opts.existingFieldNames.has(item.fieldname) && !suggestedFieldCatalog.some((x) => x.fieldname === item.fieldname)) {
+      suggestedFieldCatalog.push(item);
+    }
+  };
+
+  // Detect explicit P_* / S_* identifiers in text
+  const pMatches = upper.match(/\bP_[A-Z0-9_]{2,15}\b/g) || [];
+  pMatches.forEach((name) => {
+    maybeAddParam({
+      kind: 'PARAMETER',
+      name,
+      text: `${name.replace(/^P_/, '')} (추출 파라미터)`,
+      datatype: name.includes('DAT') ? 'DATS' : 'CHAR',
+      length: name.includes('BUKRS') || name.includes('VKORG') || name.includes('WERKS') || name.includes('KOKRS') ? 4 : 10,
+      ref_table: detectedTables[0] || '',
+      ref_field: name.replace(/^P_/, ''),
+      obligatory: true,
+      default_val: name.includes('BUKRS') || name.includes('VKORG') ? '1000' : '',
+      block_title: '기본 조회 조건',
+      reason: `로직 텍스트 내 '${name}' 파라미터 참조 감지`,
+    });
+  });
+
+  const sMatches = upper.match(/\bS_[A-Z0-9_]{2,15}\b/g) || [];
+  sMatches.forEach((name) => {
+    const core = name.replace(/^S_/, '');
+    maybeAddParam({
+      kind: 'SELECT_OPTION',
+      name,
+      text: `${core} (추출 범위 조건)`,
+      datatype: core.includes('DAT') ? 'DATS' : 'CHAR',
+      length: core.includes('DAT') ? 8 : core.includes('MATNR') ? 18 : 10,
+      ref_table: detectedTables[0] || '',
+      ref_field: core,
+      obligatory: false,
+      default_val: '',
+      block_title: '기본 조회 조건',
+      reason: `로직 텍스트 내 '${name}' SELECT-OPTIONS 참조 감지`,
+    });
+  });
+
+  // Table-driven smart suggestions
+  if (detectedTables.includes('VBAK') || detectedTables.includes('VBAP') || opts.module === 'SD') {
+    maybeAddParam({ kind: 'PARAMETER', name: 'P_VKORG', text: '영업조직 (Sales Org)', datatype: 'CHAR', length: 4, ref_table: 'VBAK', ref_field: 'VKORG', obligatory: true, default_val: '1000', block_title: '기본 조회 조건', reason: 'SD 판매오더 테이블(VBAK) 기준 조직 조회 조건' });
+    maybeAddParam({ kind: 'SELECT_OPTION', name: 'S_ERDAT', text: '전표생성일 (Created On)', datatype: 'DATS', length: 8, ref_table: 'VBAK', ref_field: 'ERDAT', obligatory: false, default_val: '', block_title: '기본 조회 조건', reason: 'VBAK 일자 범위 조건 추천' });
+    maybeAddField({ fieldname: 'VBELN', coltext: '판매오더', datatype: 'CHAR', outputlen: 10, just: 'C', key: true, hotspot: true, drilldown_tcode: 'VA03', ref_table: 'VBAK', ref_field: 'VBELN', reason: 'VBAK 기본 키 및 VA03 핫스팟 연계' });
+    maybeAddField({ fieldname: 'NETWR', coltext: '공급가액', datatype: 'CURR', outputlen: 15, just: 'R', do_sum: true, cfieldname: 'WAERK', ref_table: 'VBAK', ref_field: 'NETWR', reason: '판매금액 집계 및 통화 참조' });
+    maybeAddField({ fieldname: 'WAERK', coltext: '통화키', datatype: 'CHAR', outputlen: 5, just: 'C', ref_table: 'VBAK', ref_field: 'WAERK', reason: 'NETWR 통화 참조 필드' });
+  }
+  if (detectedTables.includes('KNA1')) {
+    maybeAddParam({ kind: 'SELECT_OPTION', name: 'S_KUNNR', text: '고객코드 (Customer)', datatype: 'CHAR', length: 10, ref_table: 'KNA1', ref_field: 'KUNNR', obligatory: false, default_val: '', block_title: '기본 조회 조건', reason: 'KNA1 고객 마스터 조회 조건' });
+    maybeAddField({ fieldname: 'KUNNR', coltext: '고객코드', datatype: 'CHAR', outputlen: 10, just: 'C', hotspot: true, drilldown_tcode: 'XD03', ref_table: 'KNA1', ref_field: 'KUNNR', reason: 'KNA1 고객 번호' });
+    maybeAddField({ fieldname: 'NAME1', coltext: '고객명', datatype: 'CHAR', outputlen: 35, just: 'L', ref_table: 'KNA1', ref_field: 'NAME1', reason: 'KNA1 고객명 매핑' });
+  }
+  if (detectedTables.includes('EKKO') || detectedTables.includes('EKPO') || opts.module === 'MM') {
+    maybeAddParam({ kind: 'SELECT_OPTION', name: 'S_EBELN', text: '구매오더 (PO Number)', datatype: 'CHAR', length: 10, ref_table: 'EKKO', ref_field: 'EBELN', obligatory: false, default_val: '', block_title: '기본 조회 조건', reason: 'EKKO 구매오더 번호 범위 조건' });
+    maybeAddParam({ kind: 'SELECT_OPTION', name: 'S_WERKS', text: '플랜트 (Plant)', datatype: 'CHAR', length: 4, ref_table: 'EKPO', ref_field: 'WERKS', obligatory: false, default_val: '1000', block_title: '기본 조회 조건', reason: 'EKPO 플랜트 필터링 조건' });
+    maybeAddField({ fieldname: 'EBELN', coltext: '구매오더', datatype: 'CHAR', outputlen: 10, just: 'C', key: true, hotspot: true, drilldown_tcode: 'ME23N', ref_table: 'EKKO', ref_field: 'EBELN', reason: 'EKKO 키 필드 및 ME23N 드릴다운' });
+    maybeAddField({ fieldname: 'MENGE', coltext: '발주수량', datatype: 'DEC', outputlen: 13, just: 'R', do_sum: true, qfieldname: 'MEINS', ref_table: 'EKPO', ref_field: 'MENGE', reason: 'EKPO 발주수량 합계' });
+    maybeAddField({ fieldname: 'MEINS', coltext: '단위', datatype: 'UNIT', outputlen: 3, just: 'C', ref_table: 'EKPO', ref_field: 'MEINS', reason: 'MENGE 단위 참조 필드' });
+  }
+  if (detectedTables.includes('BKPF') || detectedTables.includes('BSEG') || detectedTables.includes('ACDOCA') || opts.module === 'FI') {
+    maybeAddParam({ kind: 'PARAMETER', name: 'P_BUKRS', text: '회사코드 (Company Code)', datatype: 'CHAR', length: 4, ref_table: 'BKPF', ref_field: 'BUKRS', obligatory: true, default_val: '1000', block_title: '기본 조회 조건', reason: 'FI 전표 필수 회사코드 조건' });
+    maybeAddParam({ kind: 'SELECT_OPTION', name: 'S_BUDAT', text: '전기일자 (Posting Date)', datatype: 'DATS', length: 8, ref_table: 'BKPF', ref_field: 'BUDAT', obligatory: false, default_val: '', block_title: '기본 조회 조건', reason: '회계전표 전기일자 범위 조건' });
+    maybeAddField({ fieldname: 'BELNR', coltext: '회계전표', datatype: 'CHAR', outputlen: 10, just: 'C', key: true, hotspot: true, drilldown_tcode: 'FB03', ref_table: 'BKPF', ref_field: 'BELNR', reason: 'BKPF 전표번호 및 FB03 드릴다운' });
+    maybeAddField({ fieldname: 'DMBTR', coltext: '현지금액', datatype: 'CURR', outputlen: 15, just: 'R', do_sum: true, cfieldname: 'WAERS', ref_table: 'BSEG', ref_field: 'DMBTR', reason: 'BSEG 금액 집계 필드' });
+    maybeAddField({ fieldname: 'WAERS', coltext: '통화', datatype: 'CHAR', outputlen: 5, just: 'C', ref_table: 'BKPF', ref_field: 'WAERS', reason: 'DMBTR 통화 참조 필드' });
+  }
+  if (detectedTables.includes('MARA') || detectedTables.includes('MAKT')) {
+    maybeAddParam({ kind: 'SELECT_OPTION', name: 'S_MATNR', text: '자재코드 (Material)', datatype: 'CHAR', length: 18, ref_table: 'MARA', ref_field: 'MATNR', obligatory: false, default_val: '', block_title: '기본 조회 조건', reason: 'MARA 자재 코드 범위 조건' });
+    maybeAddField({ fieldname: 'MATNR', coltext: '자재코드', datatype: 'CHAR', outputlen: 18, just: 'L', hotspot: true, drilldown_tcode: 'MM03', ref_table: 'MARA', ref_field: 'MATNR', reason: 'MARA 자재코드 및 MM03 드릴다운' });
+    maybeAddField({ fieldname: 'MAKTX', coltext: '자재내역', datatype: 'CHAR', outputlen: 40, just: 'L', ref_table: 'MAKT', ref_field: 'MAKTX', reason: 'MAKT 자재 내역 텍스트' });
+  }
+  if (detectedTables.includes('CSKS') || detectedTables.includes('COEP') || opts.module === 'CO') {
+    maybeAddParam({ kind: 'PARAMETER', name: 'P_KOKRS', text: '관리회계영역 (Controlling Area)', datatype: 'CHAR', length: 4, ref_table: 'CSKS', ref_field: 'KOKRS', obligatory: true, default_val: '1000', block_title: '기본 조회 조건', reason: 'CO 관리회계영역 필수 조건' });
+    maybeAddParam({ kind: 'PARAMETER', name: 'P_GJAHR', text: '회계연도 (Fiscal Year)', datatype: 'NUMC', length: 4, ref_table: 'COEP', ref_field: 'GJAHR', obligatory: true, default_val: '2026', block_title: '기본 조회 조건', reason: 'COEP 회계연도 조건' });
+    maybeAddField({ fieldname: 'KOSTL', coltext: '코스트센터', datatype: 'CHAR', outputlen: 10, just: 'C', key: true, hotspot: true, drilldown_tcode: 'KS03', ref_table: 'CSKS', ref_field: 'KOSTL', reason: 'CSKS 코스트센터 및 KS03 드릴다운' });
+    maybeAddField({ fieldname: 'KSTAR', coltext: '원가요소', datatype: 'CHAR', outputlen: 10, just: 'C', ref_table: 'COEP', ref_field: 'KSTAR', reason: 'COEP 원가요소 계정' });
+    maybeAddField({ fieldname: 'WKG001', coltext: '실적금액', datatype: 'CURR', outputlen: 15, just: 'R', do_sum: true, cfieldname: 'WAERS', ref_table: 'COSP', ref_field: 'WKG001', reason: '원가 실적 금액 합계' });
+  }
+
+  return {
+    detectedTables: detectedTables.length > 0 ? detectedTables : ['VBAK', 'VBAP'],
+    suggestedSelectionParams,
+    suggestedFieldCatalog,
+  };
+}
+
 // Helper: Intelligent deterministic SAP mock data generator
 function generateFallbackSapRows(fields: any[], rowCount = 5): Record<string, any>[] {
   const result: Record<string, any>[] = [];
