@@ -224,77 +224,74 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({ spec, onChan
             <button
               type="button"
               onClick={handleResetToDefault}
-              className="px-2.5 py-1 text-[11px] bg-white hover:bg-slate-50 text-slate-700 hover:text-blue-700 rounded border border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              className="p-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-blue-700 rounded border border-slate-300 transition-colors flex items-center justify-center cursor-pointer shadow-2xs"
               title={
                 activeTab === 's01'
-                  ? 'Selection Screen에 등록된 파라미터/셀렉션 옵션으로 S01 인클루드 소스 다시 생성'
-                  : '사양서 정보 및 화면 모듈/클래스 정의를 다시 반영하여 기본 템플릿으로 초기화'
+                  ? 'Sync with Selection Screen'
+                  : 'Sync with Default Template'
+              }
+              aria-label={
+                activeTab === 's01'
+                  ? 'Sync with Selection Screen'
+                  : 'Sync with Default Template'
               }
             >
-              <RotateCcw className="w-3 h-3 text-amber-600" />
-              <span>
-                {activeTab === 's01' ? 'Selection Screen 연동 동기화' : '기본 템플릿 동기화'}
-              </span>
+              <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
             </button>
           )}
 
           {/* Edit / Highlight Preview Toggle */}
-          <div className="flex items-center bg-slate-200/80 p-0.5 rounded border border-slate-300">
+          <div className="flex items-center bg-slate-200/80 p-0.5 rounded border border-slate-300 gap-0.5">
             <button
               type="button"
               onClick={() => setEditorMode('edit')}
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded flex items-center gap-1 cursor-pointer transition-all ${
+              className={`p-1 rounded flex items-center justify-center cursor-pointer transition-all ${
                 editorMode === 'edit'
-                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                  ? 'bg-white text-blue-700 shadow-2xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
-              title="직접 텍스트 편집 모드"
+              title="Edit Code"
+              aria-label="Edit Code"
             >
-              <Edit3 className="w-3 h-3" />
-              <span>편집</span>
+              <Edit3 className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={() => setEditorMode('preview')}
-              className={`px-2 py-0.5 text-[11px] font-semibold rounded flex items-center gap-1 cursor-pointer transition-all ${
+              className={`p-1 rounded flex items-center justify-center cursor-pointer transition-all ${
                 editorMode === 'preview'
-                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                  ? 'bg-white text-blue-700 shadow-2xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
-              title="ABAP 구문 강조(Syntax Highlighting) 가독성 뷰"
+              title="Syntax Preview"
+              aria-label="Syntax Preview"
             >
-              <Eye className="w-3 h-3" />
-              <span>구문강조 뷰</span>
+              <Eye className="w-3.5 h-3.5" />
             </button>
           </div>
 
           <button
             type="button"
             onClick={handleCopy}
-            className="px-2.5 py-1 text-[11px] bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded border border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            title="현재 탭 코드 클립보드 복사"
+            className="p-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded border border-slate-300 transition-colors flex items-center justify-center cursor-pointer shadow-2xs"
+            title={copied ? 'Copied!' : 'Copy Code'}
+            aria-label={copied ? 'Copied!' : 'Copy Code'}
           >
             {copied ? (
-              <>
-                <Check className="w-3 h-3 text-emerald-600" />
-                <span className="text-emerald-600 font-bold">복사됨</span>
-              </>
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
             ) : (
-              <>
-                <Copy className="w-3 h-3" />
-                <span>복사</span>
-              </>
+              <Copy className="w-3.5 h-3.5" />
             )}
           </button>
 
           <button
             type="button"
             onClick={handleDownload}
-            className="px-2.5 py-1 text-[11px] bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            title="현재 탭 소스 .abap 파일로 다운로드"
+            className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center justify-center cursor-pointer shadow-2xs"
+            title="Download .abap File"
+            aria-label="Download .abap File"
           >
-            <Download className="w-3 h-3" />
-            <span>.abap 다운로드</span>
+            <Download className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

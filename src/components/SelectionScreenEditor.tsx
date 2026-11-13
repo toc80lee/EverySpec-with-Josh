@@ -1554,22 +1554,20 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
           <button
             type="button"
             onClick={handleOpenRadioGroupModal}
-            title="라디오 버튼 그룹 추가 (Radio Button Group)"
-            aria-label="라디오 버튼 그룹 추가"
-            className="px-2 py-1.5 text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center gap-1 text-[11px] font-semibold whitespace-nowrap shrink-0"
+            title="Add Radio Button Group"
+            aria-label="Add Radio Button Group"
+            className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
           >
-            <CircleDot className="w-3.5 h-3.5 text-indigo-600" />
-            <span>라디오 그룹</span>
+            <CircleDot className="w-4 h-4 text-indigo-600" />
           </button>
           <button
             type="button"
             onClick={() => handleOpenBoxModal()}
-            title="PARAMETERS / SELECT-OPTIONS를 묶어서 타이틀이 있는 박스 생성"
-            aria-label="박스 묶기"
-            className="px-2 py-1.5 text-sky-900 bg-sky-50 hover:bg-sky-100 border border-sky-300 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center gap-1 text-[11px] font-semibold whitespace-nowrap shrink-0"
+            title="Group into Box"
+            aria-label="Group into Box"
+            className="p-1.5 text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-300 rounded-md transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
           >
-            <Box className="w-3.5 h-3.5 text-sky-600" />
-            <span>박스 묶기</span>
+            <Box className="w-4 h-4 text-sky-600" />
           </button>
           <button
             type="button"
@@ -1717,22 +1715,22 @@ export const SelectionScreenEditor: React.FC<SelectionScreenEditorProps> = ({
                                     count: 0,
                                   })
                                 }
-                                title="이 박스의 항목 구성 수정"
-                                className="px-2 py-0.5 text-[11px] font-medium text-sky-800 bg-white hover:bg-sky-100 border border-sky-200 rounded flex items-center gap-1 cursor-pointer"
+                                title="Edit Box Items"
+                                aria-label="Edit Box Items"
+                                className="p-1.5 text-sky-800 bg-white hover:bg-sky-100 border border-sky-200 rounded flex items-center justify-center cursor-pointer transition-colors"
                               >
-                                <Pencil className="w-3 h-3" />
-                                <span>항목 구성</span>
+                                <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() =>
                                   handleUngroupBox(param.block_id || '', param.block_title || '')
                                 }
-                                title="박스 그룹 해제"
-                                className="px-2 py-0.5 text-[11px] font-medium text-slate-600 bg-white hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-slate-200 rounded flex items-center gap-1 cursor-pointer"
+                                title="Ungroup Box"
+                                aria-label="Ungroup Box"
+                                className="p-1.5 text-slate-600 bg-white hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-slate-200 rounded flex items-center justify-center cursor-pointer transition-colors"
                               >
-                                <Unlink className="w-3 h-3" />
-                                <span>박스 해제</span>
+                                <Unlink className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </div>

@@ -804,18 +804,13 @@ export const AlvLayoutSpreadsheet: React.FC<AlvLayoutSpreadsheetProps> = ({
         </div>
       )}
 
-      {/* Top Header & Action Controls Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 shadow-2xs">
+      {/* Top Header & Action Controls Bar (Boxless to match Field Catalog / Sort / Toolbar tabs) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <span>Configure the Layout</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-100 text-blue-900 font-bold border border-blue-200">
-                Standard SAP S/4HANA & ECC
-              </span>
-            </h3>
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <h3 className="text-sm font-bold text-slate-900">
+            Configure the Layout
+          </h3>
+          <p className="text-xs text-slate-500">
             Configure CL_GUI_ALV_GRID appearance, column width optimization, sorting, totals, selection mode, and color control parameters (LVC_S_LAYO).
           </p>
         </div>
