@@ -14,7 +14,14 @@ import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { CopySpecModal } from './components/CopySpecModal';
 import { MeetingSpecWizardModal } from './components/MeetingSpecWizardModal';
 import { MeetingMinutesPage } from './components/MeetingMinutesPage';
-import { SapGuiTheme, DEFAULT_SAP_THEME } from './data/sapGuiThemes';
+import {
+  SapGuiTheme,
+  SAP_GUI_THEMES,
+  SAP_THEME_STORAGE_KEY,
+  isValidSapGuiTheme,
+  loadSavedSapTheme,
+  saveSapTheme,
+} from './data/sapGuiThemes';
 import { CurrentUser, getCurrentUser, PRESET_USERS } from './utils/authStorage';
 import {
   COMMON_PROJECT_CODE,
@@ -28,6 +35,12 @@ import {
   upsertWorkingSpecQuietly,
 } from './utils/specStorage';
 import { deleteMeetingMinute } from './utils/meetingStorage';
+import {
+  FAVORITE_STORAGE_KEY,
+  getFavoriteProgramIds,
+  removeFavoriteProgram,
+  toggleFavoriteProgram,
+} from './utils/favoriteStorage';
 import { CheckCircle2, Undo2, X } from 'lucide-react';
 
 const DUAL_SPLIT_CYCLE: DualSplitLayout[] = [
@@ -41,6 +54,9 @@ export default function App() {
   const [currentUser, setCurrentUserState] = useState<CurrentUser>(() => getCurrentUser());
   const [projectRefreshKey, setProjectRefreshKey] = useState(0);
   const [allSavedSpecs, setAllSavedSpecs] = useState<SavedProgramSpecItem[]>(() => getSavedSpecList());
+  const [favoriteProgramIds, setFavoriteProgramIds] = useState<string[]>(() =>
+    getFavoriteProgramIds(getCurrentUser().name)
+  );
 
   const accessibleProjects = useMemo(
     () => getAccessibleProjectsForUser(currentUser.name),
@@ -183,15 +199,43 @@ export default function App() {
     setCurrentSpec(next);
     showWorkspaceToast(`다시 실행했습니다 (${next.program_id})`);
   };
-  const [currentTheme, setCurrentTheme] = useState<SapGuiTheme>(() => {
-    try {
-      const saved = localStorage.getItem('sap_gui_mockup_theme') as SapGuiTheme;
-      if (saved) return saved;
-    } catch {
-      // ignore
-    }
-    return DEFAULT_SAP_THEME;
-  });
+  const [currentTheme, setCurrentTheme] = useState<SapGuiTheme>(() => loadSavedSapTheme());
+
+  useEffect(() => {
+    saveSapTheme(currentTheme);
+  }, [currentTheme]);
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === SAP_THEME_STORAGE_KEY && isValidSapGuiTheme(e.newValue)) {
+        setCurrentTheme(e.newValue);
+      }
+      if (e.key === FAVORITE_STORAGE_KEY) {
+        setFavoriteProgramIds(getFavoriteProgramIds(currentUser.name));
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [currentUser.name]);
+
+  const handleToggleFavorite = (programId: string) => {
+    const cleanId = (programId || '').trim().toUpperCase();
+    if (!cleanId) return;
+    const res = toggleFavoriteProgram(currentUser.name, cleanId);
+    setFavoriteProgramIds(res.ids);
+    showWorkspaceToast(
+      res.favorited
+        ? `'${cleanId}' 사양서를 즐겨찾기에 추가했습니다.`
+        : `'${cleanId}' 즐겨찾기를 해제했습니다.`
+    );
+  };
+
+  const handleSelectTheme = (nextTheme: SapGuiTheme) => {
+    setCurrentTheme(nextTheme);
+    saveSapTheme(nextTheme);
+    const info = SAP_GUI_THEMES[nextTheme];
+    showWorkspaceToast(`시뮬레이터 테마: SAP ${info.name} (${info.releaseBadge})`);
+  };
   const [mockDataTrigger, setMockDataTrigger] = useState<number>(0);
 
   // Dual Screen Split Layout (상하, 좌우, 하상, 우좌) & Resizable Divider Ratio
@@ -605,20 +649,7 @@ export default function App() {
         onOpenTemplates={() => setIsTemplateModalOpen(true)}
         onExportPdf={() => setIsPdfExportModalOpen(true)}
         currentTheme={currentTheme}
-        onSelectTheme={(t) => {
-          setCurrentTheme(t);
-          try {
-            localStorage.setItem('sap_gui_mockup_theme', t);
-          } catch {
-            // ignore
-          }
-          const themeNames: Record<SapGuiTheme, string> = {
-            blue_crystal: 'SAP Blue Crystal',
-            belize: 'SAP Belize',
-            quartz: 'SAP Quartz Light',
-          };
-          showWorkspaceToast(`시뮬레이터 테마: ${themeNames[t]}`);
-        }}
+        onSelectTheme={handleSelectTheme}
         onGenerateMockData={() => {
           setMockDataTrigger((prev) => prev + 1);
           showWorkspaceToast('Mock 데이터를 새로 생성하고 있습니다...');
@@ -640,8 +671,11 @@ export default function App() {
           }
         }}
         selectedProjectCode={selectedProjectCode}
+        isCurrentSpecFavorite={favoriteProgramIds.includes((currentSpec.program_id || '').toUpperCase())}
+        onToggleCurrentSpecFavorite={() => handleToggleFavorite(currentSpec.program_id)}
         onUserChanged={(u) => {
           setCurrentUserState(u);
+          setFavoriteProgramIds(getFavoriteProgramIds(u.name));
           setProjectRefreshKey((k) => k + 1);
           refreshAllSpecs();
           showWorkspaceToast(`로그인 사용자 전환: ${u.name}`);
@@ -669,7 +703,14 @@ export default function App() {
             selectedProjectCode={selectedProjectCode}
             onSelectProject={handleSelectProject}
             allSpecs={allSavedSpecs}
-            onSpecsChanged={refreshAllSpecs}
+            favoriteProgramIds={favoriteProgramIds}
+            onToggleFavorite={handleToggleFavorite}
+            onSpecsChanged={(deletedProgramId) => {
+              if (deletedProgramId) {
+                setFavoriteProgramIds(removeFavoriteProgram(currentUser.name, deletedProgramId));
+              }
+              refreshAllSpecs();
+            }}
             onChangeViewMode={(m) => {
               refreshAllSpecs();
               setWorkspaceMode(m);
@@ -678,25 +719,10 @@ export default function App() {
             onCreateNewProgram={(projCode) => handleNewSpec(projCode)}
             onOpenProjectManager={() => openFullPageMode('project_settings')}
             onRequestCopySpec={(spec) => setCopyingSpec(spec)}
-            meetingRefreshKey={meetingRefreshKey}
             onOpenMeetingWizard={(minute) => {
               setEditingMeetingMinute(minute || null);
               setWizardStartInSpecGen(false);
               openFullPageMode('meeting_wizard');
-            }}
-            onOpenMeetingArchive={(minuteId) => {
-              setSelectedMinuteDetailId(minuteId || null);
-              setWorkspaceMode('meeting_minutes');
-            }}
-            onEnterSpecGenFromMinute={(minute) => {
-              setEditingMeetingMinute(minute);
-              setWizardStartInSpecGen(true);
-              openFullPageMode('meeting_wizard');
-            }}
-            onDeleteMeetingMinute={(id) => {
-              deleteMeetingMinute(id);
-              setMeetingRefreshKey((k) => k + 1);
-              showWorkspaceToast('회의록 이력이 삭제되었습니다.');
             }}
             onNotify={(msg) => showWorkspaceToast(msg)}
           />
@@ -884,7 +910,7 @@ export default function App() {
                 spec={currentSpec}
                 onUpdateSpec={(updated) => applySpecChange(updated)}
                 currentTheme={currentTheme}
-                onSelectTheme={setCurrentTheme}
+                onSelectTheme={handleSelectTheme}
                 mockDataTrigger={mockDataTrigger}
               />
             </div>
@@ -897,7 +923,7 @@ export default function App() {
               spec={currentSpec}
               onUpdateSpec={(updated) => applySpecChange(updated)}
               currentTheme={currentTheme}
-              onSelectTheme={setCurrentTheme}
+              onSelectTheme={handleSelectTheme}
               mockDataTrigger={mockDataTrigger}
             />
           </div>

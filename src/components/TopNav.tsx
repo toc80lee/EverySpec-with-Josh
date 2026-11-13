@@ -18,6 +18,7 @@ import {
   List,
   FolderKanban,
   MessageSquareText,
+  Star,
 } from 'lucide-react';
 import { ProgramSpec } from '../types/sap';
 import { getCurrentUser, setCurrentUser, PRESET_USERS, CurrentUser } from '../utils/authStorage';
@@ -55,6 +56,8 @@ interface TopNavProps {
   onOpenProjectManager?: () => void;
   onUserChanged?: (user: CurrentUser) => void;
   selectedProjectCode?: string;
+  isCurrentSpecFavorite?: boolean;
+  onToggleCurrentSpecFavorite?: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -75,6 +78,8 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenProjectManager,
   onUserChanged,
   selectedProjectCode,
+  isCurrentSpecFavorite = false,
+  onToggleCurrentSpecFavorite,
 }) => {
   const [user, setUser] = useState<CurrentUser>(getCurrentUser());
   const isOverviewOrList =
@@ -85,17 +90,25 @@ export const TopNav: React.FC<TopNavProps> = ({
     currentMode === 'project_settings' ||
     currentMode === 'shortcuts';
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const themeMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!isUserMenuOpen) return;
+    if (!isUserMenuOpen && !isThemeMenuOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setIsUserMenuOpen(false);
       }
+      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) {
+        setIsThemeMenuOpen(false);
+      }
     };
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsUserMenuOpen(false);
+      if (e.key === 'Escape') {
+        setIsUserMenuOpen(false);
+        setIsThemeMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     window.addEventListener('keydown', handleEsc);
@@ -103,7 +116,7 @@ export const TopNav: React.FC<TopNavProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
       window.removeEventListener('keydown', handleEsc);
     };
-  }, [isUserMenuOpen]);
+  }, [isUserMenuOpen, isThemeMenuOpen]);
 
   return (
     <header className="no-print flex items-center justify-between gap-4 px-5 py-3 bg-slate-900 border-b border-slate-800 text-white shrink-0">
@@ -139,6 +152,23 @@ export const TopNav: React.FC<TopNavProps> = ({
             </span>
             <span className="text-slate-500">/</span>
             <span className="font-bold text-white">{currentSpec.program_id}</span>
+            {onToggleCurrentSpecFavorite && (
+              <button
+                type="button"
+                onClick={onToggleCurrentSpecFavorite}
+                title={isCurrentSpecFavorite ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
+                aria-label={isCurrentSpecFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                className="ml-1 p-0.5 rounded hover:bg-slate-700/80 transition-colors cursor-pointer"
+              >
+                <Star
+                  className={`w-3.5 h-3.5 ${
+                    isCurrentSpecFavorite
+                      ? 'fill-amber-400 text-amber-400'
+                      : 'text-slate-400 hover:text-amber-300'
+                  }`}
+                />
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -315,24 +345,7 @@ export const TopNav: React.FC<TopNavProps> = ({
               </button>
             )}
 
-            {/* 6. Theme */}
-            {onSelectTheme && (
-              <button
-                type="button"
-                onClick={() => {
-                  const themes: SapGuiTheme[] = ['blue_crystal', 'belize', 'quartz'];
-                  const nextIdx = (themes.indexOf(currentTheme) + 1) % themes.length;
-                  onSelectTheme(themes[nextIdx]);
-                }}
-                className="p-2 text-blue-300 hover:text-white hover:bg-slate-700/60 rounded-md transition-all flex items-center justify-center cursor-pointer"
-                title={`Theme: ${currentTheme === 'blue_crystal' ? 'Blue Crystal' : currentTheme === 'belize' ? 'Belize' : 'Quartz'}`}
-                aria-label="Theme"
-              >
-                <Palette className="w-4 h-4" />
-              </button>
-            )}
-
-            {/* 7. Print */}
+            {/* 6. Print */}
             <button
               type="button"
               onClick={() => onSelectMode('document')}
@@ -349,7 +362,75 @@ export const TopNav: React.FC<TopNavProps> = ({
           </>
         )}
 
-        {/* 8. Keyboard Shortcuts */}
+        {/* Global SAP GUI Theme Picker (Quartz / Belize / Blue Crystal) */}
+        {onSelectTheme && (
+          <div className="relative" ref={themeMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsThemeMenuOpen((prev) => !prev)}
+              className={`p-2 rounded-md transition-all flex items-center justify-center cursor-pointer ${
+                isThemeMenuOpen
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-blue-300 hover:text-white hover:bg-slate-700/60'
+              }`}
+              title={`SAP GUI 테마: ${SAP_GUI_THEMES[currentTheme]?.name || 'Blue Crystal'}`}
+              aria-label="SAP GUI Theme"
+              aria-expanded={isThemeMenuOpen}
+            >
+              <Palette className="w-4 h-4" />
+            </button>
+
+            {isThemeMenuOpen && (
+              <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-2xl border border-slate-200 p-2 z-50 text-slate-800">
+                <div className="px-2 py-1 border-b border-slate-100 flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">
+                    SAP GUI 테마 선택
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">자동 저장</span>
+                </div>
+                <div className="py-1.5 space-y-1">
+                  {(['quartz', 'belize', 'blue_crystal'] as SapGuiTheme[]).map((themeKey) => {
+                    const info = SAP_GUI_THEMES[themeKey];
+                    const active = currentTheme === themeKey;
+                    return (
+                      <button
+                        key={themeKey}
+                        type="button"
+                        onClick={() => {
+                          onSelectTheme(themeKey);
+                          setIsThemeMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-2.5 py-2 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-blue-50 text-blue-900 font-bold border border-blue-200'
+                            : 'hover:bg-slate-100 text-slate-700 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span
+                            className="w-4 h-4 rounded-sm border border-slate-300 shrink-0"
+                            style={{ backgroundColor: info.colors.header }}
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold leading-tight truncate">
+                              {info.name}
+                            </div>
+                            <div className="text-[10px] text-slate-500 leading-tight mt-0.5">
+                              {info.releaseBadge}
+                            </div>
+                          </div>
+                        </div>
+                        {active && <span className="text-blue-600 font-bold text-xs shrink-0">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 7. Keyboard Shortcuts */}
         {onOpenShortcuts && (
           <button
             type="button"

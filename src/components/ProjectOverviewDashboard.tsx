@@ -1,18 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import {
   ArrowLeft,
-  ArrowRight,
   Copy,
   FileCode,
   FolderKanban,
-  ListFilter,
   Lock,
-  MessageSquareText,
   Mic,
   Plus,
   Search,
   Settings,
-  Sparkles,
+  Star,
   Trash2,
 } from 'lucide-react';
 import { ProgramSpec, ProjectMeetingMinute, SapModule, SapProject } from '../types/sap';
@@ -24,7 +21,6 @@ import {
   isSpecVisibleInProject,
 } from '../utils/projectStorage';
 import { SavedProgramSpecItem, deleteSpecFromStorage } from '../utils/specStorage';
-import { getVisibleMinutesForProject } from '../utils/meetingStorage';
 
 const SAP_MODULES: { code: SapModule; label: string }[] = [
   { code: 'SD', label: '영업·출하' },
@@ -35,7 +31,8 @@ const SAP_MODULES: { code: SapModule; label: string }[] = [
   { code: 'HR', label: '인사관리' },
   { code: 'QM', label: '품질관리' },
   { code: 'PM', label: '설비보전' },
-  { code: 'BC', label: '시스템·공통' },
+  { code: 'BC', label: 'Basis·시스템' },
+  { code: 'CM', label: '공통 영역' },
 ];
 
 interface ProjectOverviewDashboardProps {
@@ -45,17 +42,15 @@ interface ProjectOverviewDashboardProps {
   selectedProjectCode: string;
   onSelectProject: (code: string) => void;
   allSpecs: SavedProgramSpecItem[];
-  onSpecsChanged: () => void;
+  favoriteProgramIds: string[];
+  onToggleFavorite: (programId: string) => void;
+  onSpecsChanged: (deletedProgramId?: string) => void;
   onChangeViewMode: (mode: 'overview' | 'program_list') => void;
   onOpenProgram: (spec: ProgramSpec) => void;
   onCreateNewProgram: (projectCode: string) => void;
   onOpenProjectManager: () => void;
   onRequestCopySpec: (spec: ProgramSpec) => void;
-  meetingRefreshKey?: number;
   onOpenMeetingWizard: (minute?: ProjectMeetingMinute) => void;
-  onOpenMeetingArchive: (minuteId?: string) => void;
-  onEnterSpecGenFromMinute: (minute: ProjectMeetingMinute) => void;
-  onDeleteMeetingMinute: (id: string) => void;
   onNotify?: (message: string) => void;
 }
 
@@ -66,22 +61,22 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
   selectedProjectCode,
   onSelectProject,
   allSpecs,
+  favoriteProgramIds,
+  onToggleFavorite,
   onSpecsChanged,
   onChangeViewMode,
   onOpenProgram,
   onCreateNewProgram,
   onOpenProjectManager,
   onRequestCopySpec,
-  meetingRefreshKey = 0,
   onOpenMeetingWizard,
-  onOpenMeetingArchive,
-  onEnterSpecGenFromMinute,
-  onDeleteMeetingMinute,
   onNotify,
 }) => {
   const [selectedModuleFilter, setSelectedModuleFilter] = useState<'ALL' | SapModule>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [sampleTypeFilter, setSampleTypeFilter] = useState<string>('ALL');
+  const [favoritesOnlyFilter, setFavoritesOnlyFilter] = useState(false);
+  const [favoriteOverviewScope, setFavoriteOverviewScope] = useState<'ALL' | 'PROJECT'>('ALL');
 
   const activeProject = useMemo(
     () =>
@@ -97,13 +92,6 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
       isSpecVisibleInProject(item, activeProject.code, currentUser.name)
     );
   }, [allSpecs, activeProject, currentUser.name]);
-
-  // Saved meeting minutes visible in the currently selected project (TEMP is author-isolated)
-  const projectMinutes = useMemo(() => {
-    if (!activeProject) return [];
-    return getVisibleMinutesForProject(activeProject.code, currentUser.name);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProject, currentUser.name, meetingRefreshKey]);
 
   // Program counts for each accessible project (for project switcher cards)
   const projectCountsMap = useMemo(() => {
@@ -128,6 +116,7 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
       QM: 0,
       PM: 0,
       BC: 0,
+      CM: 0,
     };
     projectSpecs.forEach((item) => {
       if (counts[item.module] !== undefined) {
@@ -137,10 +126,59 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
     return counts;
   }, [projectSpecs]);
 
+  // Only modules configured on the active project
+  const configuredProjectModules = useMemo(() => {
+    const activeSet = new Set(activeProject?.modules || []);
+    return SAP_MODULES.filter((mod) => activeSet.has(mod.code));
+  }, [activeProject]);
+
+  // Program list filter chips: configured project modules + any module with existing specs
+  const listFilterModules = useMemo(() => {
+    const activeSet = new Set(activeProject?.modules || []);
+    return SAP_MODULES.filter(
+      (mod) => activeSet.has(mod.code) || (moduleCounts[mod.code] || 0) > 0
+    );
+  }, [activeProject, moduleCounts]);
+
+  const favoriteIdSet = useMemo(
+    () => new Set(favoriteProgramIds.map((id) => id.toUpperCase())),
+    [favoriteProgramIds]
+  );
+
+  // All accessible starred specs ordered by user's favorite order
+  const accessibleFavoriteSpecs = useMemo(() => {
+    const byId = new Map<string, SavedProgramSpecItem>();
+    allSpecs.forEach((item) => {
+      const upperId = item.program_id.toUpperCase();
+      if (!favoriteIdSet.has(upperId)) return;
+      const isVisible = accessibleProjects.some((p) =>
+        isSpecVisibleInProject(item, p.code, currentUser.name)
+      );
+      if (isVisible) {
+        byId.set(upperId, item);
+      }
+    });
+    return favoriteProgramIds
+      .map((id) => byId.get(id.toUpperCase()))
+      .filter((item): item is SavedProgramSpecItem => Boolean(item));
+  }, [allSpecs, favoriteProgramIds, favoriteIdSet, accessibleProjects, currentUser.name]);
+
+  const displayedFavoriteSpecs = useMemo(() => {
+    if (favoriteOverviewScope === 'PROJECT' && activeProject) {
+      return accessibleFavoriteSpecs.filter((item) =>
+        isSpecVisibleInProject(item, activeProject.code, currentUser.name)
+      );
+    }
+    return accessibleFavoriteSpecs;
+  }, [accessibleFavoriteSpecs, favoriteOverviewScope, activeProject, currentUser.name]);
+
   // Filtered specs for Program List view
   const filteredListSpecs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return projectSpecs.filter((item) => {
+      if (favoritesOnlyFilter && !favoriteIdSet.has(item.program_id.toUpperCase())) {
+        return false;
+      }
       if (selectedModuleFilter !== 'ALL' && item.module !== selectedModuleFilter) {
         return false;
       }
@@ -156,7 +194,14 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
         item.module.toLowerCase().includes(q)
       );
     });
-  }, [projectSpecs, selectedModuleFilter, sampleTypeFilter, searchQuery]);
+  }, [
+    projectSpecs,
+    favoritesOnlyFilter,
+    favoriteIdSet,
+    selectedModuleFilter,
+    sampleTypeFilter,
+    searchQuery,
+  ]);
 
   const handleOpenModuleList = (mod: 'ALL' | SapModule) => {
     setSelectedModuleFilter(mod);
@@ -173,7 +218,7 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
       onNotify?.(res.message || '삭제할 수 없습니다.');
       return;
     }
-    onSpecsChanged();
+    onSpecsChanged(item.program_id);
     onNotify?.(`프로그램 '${item.program_id}' 사양서가 삭제되었습니다.`);
   };
 
@@ -221,15 +266,6 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
                 <span>오버뷰로 돌아가기</span>
               </button>
             )}
-
-            <button
-              type="button"
-              onClick={onOpenProjectManager}
-              className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Settings className="w-3.5 h-3.5 text-slate-500" />
-              <span>프로젝트 설정</span>
-            </button>
 
             <button
               type="button"
@@ -324,182 +360,142 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 shrink-0 border-t md:border-t-0 md:border-l border-slate-200 pt-4 md:pt-0 md:pl-8">
-                <div>
-                  <div className="text-xs font-medium text-slate-500">
-                    현재 프로젝트 프로그램 본수
-                  </div>
-                  <div className="mt-1 flex items-baseline gap-1.5">
-                    <span className="text-4xl font-bold font-mono tabular-nums text-slate-900">
-                      {projectSpecs.length}
-                    </span>
-                    <span className="text-sm font-medium text-slate-500">본</span>
-                  </div>
-                </div>
-
+              <div className="flex items-center shrink-0 border-t md:border-t-0 md:border-l border-slate-200 pt-4 md:pt-0 md:pl-8">
                 <button
                   type="button"
                   onClick={() => handleOpenModuleList('ALL')}
-                  className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
+                  title="클릭하여 프로그램 리스트로 이동"
+                  aria-label={`${activeProject.name} 프로그램 리스트 보기 (${projectSpecs.length}본)`}
+                  className="group flex items-baseline gap-1.5 px-3 py-2 -mx-3 -my-2 rounded-xl hover:bg-blue-50/80 transition-colors cursor-pointer"
                 >
-                  <ListFilter className="w-4 h-4" />
-                  <span>프로그램 리스트 보기</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <span className="text-4xl font-bold font-mono tabular-nums text-slate-900 group-hover:text-blue-700 underline decoration-slate-300 group-hover:decoration-blue-600 underline-offset-4 transition-colors">
+                    {projectSpecs.length}
+                  </span>
+                  <span className="text-sm font-medium text-slate-500 group-hover:text-blue-700">
+                    본
+                  </span>
                 </button>
               </div>
             </section>
 
-            {/* Module Breakdown Section */}
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">모듈별 사양서 현황</h3>
-                  <p className="text-xs text-slate-500">
-                    모듈을 클릭하면 해당 모듈의 프로그램 리스트로 바로 이동합니다.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                {SAP_MODULES.map((mod) => {
-                  const count = moduleCounts[mod.code] || 0;
-                  const isActiveModule = activeProject.modules.includes(mod.code);
-                  return (
-                    <button
-                      key={mod.code}
-                      type="button"
-                      onClick={() => handleOpenModuleList(mod.code)}
-                      className={`p-4 bg-white border rounded-xl text-left transition-all cursor-pointer group ${
-                        count > 0
-                          ? 'border-slate-200 hover:border-blue-400'
-                          : isActiveModule
-                          ? 'border-slate-200/80 hover:border-slate-300 opacity-85'
-                          : 'border-slate-200/60 hover:border-slate-300 opacity-60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-sm font-bold text-slate-900 group-hover:text-blue-700">
-                          {mod.code}
-                        </span>
-                        <span
-                          className={`font-mono tabular-nums text-lg font-bold ${
-                            count > 0 ? 'text-blue-600' : 'text-slate-400'
-                          }`}
-                        >
-                          {count}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-500 mt-1">{mod.label}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Recent Programs Quick Jump */}
+            {/* Starred / Favorite Specifications Quick Access */}
             <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+              <div className="px-5 py-3.5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    소속 프로그램 빠른 열기
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Star className="w-4 h-4 fill-amber-400 text-amber-500" />
+                    <span>즐겨찾기 사양서</span>
+                    <span className="font-mono text-xs font-semibold text-amber-700">
+                      ({displayedFavoriteSpecs.length})
+                    </span>
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Program ID를 클릭하면 사양서 편집 및 SAP GUI 시뮬레이션 상세 화면으로 진입합니다.
+                    자주 참조·편집하는 사양서를 즐겨찾기(★)로 등록해 어느 프로젝트에서든 바로 열 수 있습니다.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleOpenModuleList('ALL')}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-800 cursor-pointer flex items-center gap-1"
-                >
-                  <span>전체 목록 ({projectSpecs.length})</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
 
-              {projectSpecs.length === 0 ? (
-                <div className="px-6 py-10 text-center space-y-3">
-                  <p className="text-sm text-slate-600">
-                    {isTempProject
-                      ? `'${currentUser.name}' 계정의 TEMP 프로젝트에 등록된 사양서가 없습니다.`
-                      : `'${activeProject.name}' 프로젝트에 등록된 프로그램 사양서가 없습니다.`}
-                  </p>
-                  <div className="flex items-center justify-center gap-2">
+                {accessibleFavoriteSpecs.length > 0 && (
+                  <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs self-start sm:self-auto shrink-0">
                     <button
                       type="button"
-                      onClick={() => onCreateNewProgram(newTargetProject)}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
+                      onClick={() => setFavoriteOverviewScope('ALL')}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                        favoriteOverviewScope === 'ALL'
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      새 프로그램 작성
+                      전체 프로젝트 ({accessibleFavoriteSpecs.length})
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        onSelectProject(COMMON_PROJECT_CODE);
-                        onChangeViewMode('program_list');
-                      }}
-                      className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold cursor-pointer"
+                      onClick={() => setFavoriteOverviewScope('PROJECT')}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                        favoriteOverviewScope === 'PROJECT'
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      COMMON 샘플 둘러보기
+                      {activeProject.code}만
                     </button>
                   </div>
+                )}
+              </div>
+
+              {displayedFavoriteSpecs.length === 0 ? (
+                <div className="px-5 py-6 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-center gap-2">
+                  <span>
+                    {accessibleFavoriteSpecs.length === 0
+                      ? '아직 즐겨찾기한 사양서가 없습니다. 프로그램 리스트 또는 상단 바의 별표(★) 아이콘을 눌러 등록해 보세요.'
+                      : `'${activeProject.code}' 프로젝트에 속한 즐겨찾기 사양서가 없습니다. '전체 프로젝트' 탭에서 다른 프로젝트 즐겨찾기를 확인할 수 있습니다.`}
+                  </span>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
-                  {projectSpecs.slice(0, 6).map((item) => {
+                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {displayedFavoriteSpecs.map((item) => {
                     const isProtected = isCommonProtectedSample(item.spec);
                     return (
                       <div
-                        key={item.program_id}
-                        className="px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                        key={`fav-${item.program_id}`}
+                        className="p-3.5 bg-slate-50/70 hover:bg-blue-50/40 border border-slate-200 hover:border-blue-300 rounded-xl transition-all flex flex-col justify-between gap-2.5"
                       >
-                        <div className="flex items-center gap-4 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
                           <button
                             type="button"
                             onClick={() => onOpenProgram(item.spec)}
-                            className="font-mono text-xs font-bold text-blue-700 hover:text-blue-900 underline decoration-blue-300 hover:decoration-blue-700 flex items-center gap-1.5 shrink-0 cursor-pointer"
+                            className="text-left min-w-0 group cursor-pointer"
                           >
-                            <FileCode className="w-3.5 h-3.5 text-blue-500" />
-                            <span>{item.program_id}</span>
-                          </button>
-
-                          <div className="min-w-0">
-                            <div className="text-xs font-semibold text-slate-900 truncate">
-                              {item.title}
-                            </div>
-                            <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
-                              <span className="font-mono font-semibold text-slate-700">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <FileCode className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span className="font-mono text-xs font-bold text-blue-700 group-hover:text-blue-900 group-hover:underline">
+                                {item.program_id}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 font-mono text-[10px] font-semibold text-slate-700">
+                                {item.project_code}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-slate-200/70 font-mono text-[10px] font-bold text-slate-700">
                                 {item.module}
                               </span>
-                              <span aria-hidden="true">·</span>
-                              <span className="font-mono">{item.tcode}</span>
-                              <span aria-hidden="true">·</span>
-                              <span>{item.author}</span>
-                              <span aria-hidden="true">·</span>
-                              <span className="font-mono tabular-nums">{item.updated_at}</span>
                             </div>
-                          </div>
-                        </div>
+                            <div className="text-xs font-semibold text-slate-900 mt-1.5 line-clamp-1">
+                              {item.title}
+                            </div>
+                          </button>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {isProtected && (
-                            <button
-                              type="button"
-                              onClick={() => onRequestCopySpec(item.spec)}
-                              className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md flex items-center gap-1 cursor-pointer"
-                              title="원본을 보호하고 내 프로젝트 또는 TEMP로 복사합니다."
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                              <span>프로젝트로 복사</span>
-                            </button>
-                          )}
                           <button
                             type="button"
-                            onClick={() => onOpenProgram(item.spec)}
-                            className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md cursor-pointer"
+                            onClick={() => onToggleFavorite(item.program_id)}
+                            title="즐겨찾기 해제"
+                            aria-label={`${item.program_id} 즐겨찾기 해제`}
+                            className="p-1 rounded-md hover:bg-amber-50 transition-colors cursor-pointer shrink-0"
                           >
-                            상세 열기
+                            <Star className="w-4 h-4 fill-amber-400 text-amber-500" />
                           </button>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/80 text-[11px] text-slate-500">
+                          <span className="font-mono truncate">
+                            {item.tcode} · Type {item.sample_type || '01'}
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {isProtected && (
+                              <button
+                                type="button"
+                                onClick={() => onRequestCopySpec(item.spec)}
+                                className="px-2 py-1 text-[11px] font-semibold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded cursor-pointer"
+                                title="프로젝트로 복사"
+                              >
+                                복사
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onOpenProgram(item.spec)}
+                              className="px-2.5 py-1 text-[11px] font-semibold text-slate-800 bg-white hover:bg-slate-100 border border-slate-300 rounded cursor-pointer"
+                            >
+                              바로 열기
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -508,172 +504,75 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
               )}
             </section>
 
-            {/* Project Meeting Minutes History Section */}
-            <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            {/* Module Breakdown Section (Strictly shows project-configured modules) */}
+            <section className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <MessageSquareText className="w-4 h-4 text-blue-600" />
-                    <span>프로젝트 회의록 이력</span>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    모듈별 사양서 현황{' '}
+                    <span className="ml-1 font-mono text-xs font-semibold text-blue-700">
+                      ({configuredProjectModules.length}개 설정됨)
+                    </span>
                   </h3>
                   <p className="text-xs text-slate-500">
-                    회의 녹음·AI 요약으로 작성된 회의록을 다시 열어 보충하거나 COMMON 샘플 기반으로 사양서를 재구성할 수 있습니다.
+                    현재 프로젝트에 설정된 활성 모듈만 표시됩니다. 모듈을 클릭하면 해당 모듈의 프로그램 리스트로 이동합니다.
                   </p>
                 </div>
-
-                <div className="flex items-center gap-2 shrink-0">
+                {!isCommonProject && !isTempProject && (
                   <button
                     type="button"
-                    onClick={() => onOpenMeetingArchive()}
-                    className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    onClick={onOpenProjectManager}
+                    className="text-xs font-semibold text-slate-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer self-start sm:self-auto"
                   >
-                    <span>전체 회의록 관리</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>프로젝트 모듈 설정</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onOpenMeetingWizard()}
-                    className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Mic className="w-3.5 h-3.5 text-blue-300" />
-                    <span>새 회의 녹음 시작</span>
-                  </button>
-                </div>
+                )}
               </div>
 
-              {isCommonProject ? (
-                <div className="px-6 py-8 text-center text-xs text-slate-500">
-                  COMMON은 전사 공통 샘플 영역입니다. 회의록 이력은 각 팀 프로젝트 또는 TEMP 프로젝트에 보관되며, 위 버튼을 누르면 대상 프로젝트를 지정해 회의를 시작할 수 있습니다.
-                </div>
-              ) : projectMinutes.length === 0 ? (
-                <div className="px-6 py-8 text-center space-y-2.5">
+              {configuredProjectModules.length === 0 ? (
+                <div className="p-6 bg-white border border-slate-200 rounded-xl text-center space-y-2">
                   <p className="text-xs text-slate-500">
-                    {isTempProject
-                      ? `'${currentUser.name}' 계정의 TEMP 프로젝트에 저장된 회의록 이력이 없습니다.`
-                      : `'${activeProject.name}' 프로젝트에 등록된 회의록 이력이 없습니다.`}
+                    이 프로젝트에 설정된 활성 모듈이 없습니다.
                   </p>
                   <button
                     type="button"
-                    onClick={() => onOpenMeetingWizard()}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5"
+                    onClick={onOpenProjectManager}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5"
                   >
-                    <Mic className="w-3.5 h-3.5" />
-                    <span>첫 회의록 녹음·설계 시작하기</span>
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>모듈 설정하기</span>
                   </button>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
-                  {projectMinutes.map((m) => {
-                    const linkedSpecItem = m.generated_program_id
-                      ? allSpecs.find(
-                          (s) =>
-                            s.program_id.toUpperCase() === m.generated_program_id!.toUpperCase()
-                        )
-                      : undefined;
-                    const statusText =
-                      m.status === 'spec_generated'
-                        ? '사양서 구성 완료'
-                        : m.status === 'recommended'
-                        ? '샘플 유형 추천 완료'
-                        : m.status === 'minutes_ready'
-                        ? '회의록 정리 완료'
-                        : '녹음/작성 중';
-
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {configuredProjectModules.map((mod) => {
+                    const count = moduleCounts[mod.code] || 0;
                     return (
-                      <div
-                        key={m.id}
-                        className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                      <button
+                        key={mod.code}
+                        type="button"
+                        onClick={() => handleOpenModuleList(mod.code)}
+                        className={`p-4 bg-white border rounded-xl text-left transition-all cursor-pointer group ${
+                          count > 0
+                            ? 'border-slate-200 hover:border-blue-400'
+                            : 'border-slate-200/80 hover:border-slate-300 opacity-90'
+                        }`}
                       >
-                        <div className="min-w-0 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => onOpenMeetingArchive(m.id)}
-                              className="text-xs font-bold text-slate-900 hover:text-blue-700 hover:underline truncate text-left cursor-pointer"
-                            >
-                              {m.title}
-                            </button>
-                            <span
-                              className={`text-[11px] font-semibold ${
-                                m.status === 'spec_generated'
-                                  ? 'text-emerald-700'
-                                  : m.status === 'recommended'
-                                  ? 'text-blue-700'
-                                  : 'text-slate-600'
-                              }`}
-                            >
-                              · {statusText}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2">
-                            <span>{m.author}</span>
-                            <span aria-hidden="true">·</span>
-                            <span className="font-mono tabular-nums">{m.updated_at}</span>
-                            {m.suggested_module && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span className="font-mono font-semibold text-slate-700">
-                                  {m.suggested_module}
-                                </span>
-                              </>
-                            )}
-                            {m.recommended_sample_type && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span className="font-mono text-slate-700">
-                                  추천 유형 {m.recommended_sample_type}
-                                </span>
-                              </>
-                            )}
-                            {m.generated_program_id && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                {linkedSpecItem ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => onOpenProgram(linkedSpecItem.spec)}
-                                    className="font-mono font-bold text-blue-700 hover:underline cursor-pointer"
-                                  >
-                                    연계 프로그램: {m.generated_program_id}
-                                  </button>
-                                ) : (
-                                  <span className="font-mono text-slate-600">
-                                    생성됨: {m.generated_program_id}
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => onOpenMeetingArchive(m.id)}
-                            className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md cursor-pointer"
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-sm font-bold text-slate-900 group-hover:text-blue-700">
+                            {mod.code}
+                          </span>
+                          <span
+                            className={`font-mono tabular-nums text-lg font-bold ${
+                              count > 0 ? 'text-blue-600' : 'text-slate-400'
+                            }`}
                           >
-                            상세 보기
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onEnterSpecGenFromMinute(m)}
-                            className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md flex items-center gap-1 cursor-pointer"
-                          >
-                            <Sparkles className="w-3 h-3" />
-                            <span>프로그램 스펙 생성</span>
-                          </button>
-                          {m.author === currentUser.name && (
-                            <button
-                              type="button"
-                              onClick={() => onDeleteMeetingMinute(m.id)}
-                              className="p-1.5 text-rose-600 hover:bg-rose-50 border border-slate-200 rounded cursor-pointer"
-                              title="회의록 삭제"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                            {count}
+                          </span>
                         </div>
-                      </div>
+                        <div className="text-xs text-slate-500 mt-1">{mod.label}</div>
+                      </button>
                     );
                   })}
                 </div>
@@ -713,7 +612,7 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
                 >
                   ALL ({projectSpecs.length})
                 </button>
-                {SAP_MODULES.map((mod) => {
+                {listFilterModules.map((mod) => {
                   const cnt = moduleCounts[mod.code] || 0;
                   return (
                     <button
@@ -745,6 +644,25 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFavoritesOnlyFilter((prev) => !prev)}
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      favoritesOnlyFilter
+                        ? 'bg-amber-50 border-amber-300 text-amber-900'
+                        : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Star
+                      className={`w-3.5 h-3.5 ${
+                        favoritesOnlyFilter
+                          ? 'fill-amber-400 text-amber-500'
+                          : 'text-slate-400'
+                      }`}
+                    />
+                    <span>즐겨찾기만</span>
+                  </button>
+
                   <select
                     value={sampleTypeFilter}
                     onChange={(e) => setSampleTypeFilter(e.target.value)}
@@ -789,6 +707,7 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
                     ) : (
                       filteredListSpecs.map((item) => {
                         const isProtected = isCommonProtectedSample(item.spec);
+                        const isFav = favoriteIdSet.has(item.program_id.toUpperCase());
                         const canDelete = !isProtected && !item.is_system && item.author === currentUser.name;
                         const latestVer =
                           item.change_history && item.change_history.length > 0
@@ -801,14 +720,31 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
                             className="hover:bg-blue-50/50 transition-colors"
                           >
                             <td className="px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={() => onOpenProgram(item.spec)}
-                                className="font-mono font-bold text-blue-700 hover:text-blue-900 underline decoration-blue-300 hover:decoration-blue-700 flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <FileCode className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                <span>{item.program_id}</span>
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleFavorite(item.program_id)}
+                                  title={isFav ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
+                                  aria-label={`${item.program_id} ${isFav ? '즐겨찾기 해제' : '즐겨찾기에 추가'}`}
+                                  className="p-0.5 rounded hover:bg-amber-50 transition-colors cursor-pointer shrink-0"
+                                >
+                                  <Star
+                                    className={`w-3.5 h-3.5 ${
+                                      isFav
+                                        ? 'fill-amber-400 text-amber-500'
+                                        : 'text-slate-300 hover:text-amber-400'
+                                    }`}
+                                  />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenProgram(item.spec)}
+                                  className="font-mono font-bold text-blue-700 hover:text-blue-900 underline decoration-blue-300 hover:decoration-blue-700 flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <FileCode className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                  <span>{item.program_id}</span>
+                                </button>
+                              </div>
                             </td>
                             <td className="px-4 py-3 font-mono font-semibold text-slate-700">
                               {item.project_code}

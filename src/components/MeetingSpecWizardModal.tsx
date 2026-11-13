@@ -38,7 +38,7 @@ import {
 } from '../utils/aiLogicGenerator';
 import { SAMPLE_SPECS } from '../data/sampleSpecs';
 
-const SAP_MODULES: SapModule[] = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+const SAP_MODULES: SapModule[] = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC', 'CM'];
 
 const SAMPLE_MEETING_PRESETS = [
   {
@@ -1203,7 +1203,7 @@ ${minutesMarkdown}`;
                     >
                       {SAP_MODULES.map((m) => (
                         <option key={m} value={m}>
-                          {m}
+                          {m === 'CM' ? 'CM (공통 영역)' : m}
                         </option>
                       ))}
                     </select>

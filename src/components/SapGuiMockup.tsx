@@ -35,7 +35,13 @@ import { SapF4ValueHelpModal } from './SapF4ValueHelpModal';
 import { SapAlvFilterModal, AlvColumnFilter } from './SapAlvFilterModal';
 import { SapAlvLayoutModal } from './SapAlvLayoutModal';
 import { SapBusinessGraphicModal } from './SapBusinessGraphicModal';
-import { SapGuiTheme, SAP_GUI_THEMES, DEFAULT_SAP_THEME } from '../data/sapGuiThemes';
+import {
+  SapGuiTheme,
+  SAP_GUI_THEMES,
+  DEFAULT_SAP_THEME,
+  loadSavedSapTheme,
+  saveSapTheme,
+} from '../data/sapGuiThemes';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 import { downloadFile } from '../utils/specExport';
 import { getSapColorHex } from './SapColorSearchHelpModal';
@@ -267,29 +273,17 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
   });
 
   // SAP GUI Theme State (Blue Crystal, Belize, Quartz)
-  const [localTheme, setLocalTheme] = useState<SapGuiTheme>(() => {
-    try {
-      const saved = localStorage.getItem('sap_gui_mockup_theme') as SapGuiTheme;
-      if (saved && SAP_GUI_THEMES[saved]) return saved;
-    } catch {
-      // localStorage unavailable in some contexts
-    }
-    return DEFAULT_SAP_THEME;
-  });
+  const [localTheme, setLocalTheme] = useState<SapGuiTheme>(() => loadSavedSapTheme());
 
   const currentTheme = propTheme || localTheme;
   const [isThemeSettingsOpen, setIsThemeSettingsOpen] = useState<boolean>(false);
 
   const handleSelectTheme = (newTheme: SapGuiTheme) => {
+    saveSapTheme(newTheme);
     if (propSelectTheme) {
       propSelectTheme(newTheme);
     } else {
       setLocalTheme(newTheme);
-    }
-    try {
-      localStorage.setItem('sap_gui_mockup_theme', newTheme);
-    } catch {
-      // localStorage error handling
     }
     setStatusMessage({
       text: `SAP GUI Theme changed to [${SAP_GUI_THEMES[newTheme].name}] (${SAP_GUI_THEMES[newTheme].releaseBadge}).`,

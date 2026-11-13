@@ -510,6 +510,8 @@ function buildClientFullSpecFallback(req: FullSpecDraftRequest): { spec: Program
       ? 'FI'
       : req.requirementPrompt.includes('원가') || req.requirementPrompt.includes('코스트')
       ? 'CO'
+      : req.requirementPrompt.includes('공통 영역') || req.requirementPrompt.includes('공통영역') || req.requirementPrompt.includes('공통코드')
+      ? 'CM'
       : 'SD';
 
   const programId = (req.programId || `Z${mod}_R_COPILOT`).toUpperCase();
@@ -671,6 +673,8 @@ export async function requestAiMeetingMinutes(
       ? 'FI'
       : combined.includes('원가') || combined.includes('코스트')
       ? 'CO'
+      : combined.includes('공통 영역') || combined.includes('공통영역') || combined.includes('공통코드')
+      ? 'CM'
       : 'SD';
 
   const base = req.existingMinutes?.trim()
@@ -759,6 +763,8 @@ export async function requestAiSampleRecommendation(
       ? 'MM'
       : txt.includes('회계') || txt.includes('전표')
       ? 'FI'
+      : txt.includes('공통 영역') || txt.includes('공통영역') || txt.includes('공통코드')
+      ? 'CM'
       : 'SD';
 
   const recommendedSampleType: '01' | '02' | '03' | '04' =

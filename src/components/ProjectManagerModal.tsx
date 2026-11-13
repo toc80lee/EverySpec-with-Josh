@@ -28,7 +28,19 @@ interface ProjectManagerModalProps {
   initialProjectCode?: string;
 }
 
-const ALL_MODULES: SapModule[] = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+const MODULE_OPTIONS: { code: SapModule; label: string }[] = [
+  { code: 'SD', label: '영업·출하' },
+  { code: 'MM', label: '구매·자재' },
+  { code: 'FI', label: '재무회계' },
+  { code: 'CO', label: '관리회계' },
+  { code: 'PP', label: '생산관리' },
+  { code: 'HR', label: '인사관리' },
+  { code: 'QM', label: '품질관리' },
+  { code: 'PM', label: '설비보전' },
+  { code: 'BC', label: 'Basis·시스템' },
+  { code: 'CM', label: '공통 영역' },
+];
+const ALL_MODULES: SapModule[] = MODULE_OPTIONS.map((m) => m.code);
 
 export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   isOpen,
@@ -345,21 +357,24 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 프로젝트 활성 모듈
               </label>
               <div className="flex flex-wrap gap-1.5">
-                {ALL_MODULES.map((mod) => {
-                  const active = formModules.includes(mod);
+                {MODULE_OPTIONS.map((mod) => {
+                  const active = formModules.includes(mod.code);
                   return (
                     <button
-                      key={mod}
+                      key={mod.code}
                       type="button"
                       disabled={isSystemProject}
-                      onClick={() => toggleModule(mod)}
-                      className={`px-2.5 py-1 rounded-md text-xs font-mono font-bold border transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                      onClick={() => toggleModule(mod.code)}
+                      className={`px-2.5 py-1.5 rounded-md text-xs border transition-colors cursor-pointer disabled:cursor-not-allowed flex items-center gap-1.5 ${
                         active
                           ? 'bg-blue-600 text-white border-blue-600'
                           : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                       }`}
                     >
-                      {mod}
+                      <span className="font-mono font-bold">{mod.code}</span>
+                      <span className={`text-[11px] ${active ? 'text-blue-100' : 'text-slate-400'}`}>
+                        {mod.label}
+                      </span>
                     </button>
                   );
                 })}

@@ -702,7 +702,7 @@ Extract missing Selection Screen items and missing ALV Field Catalog columns.`;
   }
 });
 
-function detectSapModuleFromText(text: string): 'SD' | 'MM' | 'FI' | 'CO' | 'PP' | 'HR' | 'QM' | 'PM' | 'BC' {
+function detectSapModuleFromText(text: string): 'SD' | 'MM' | 'FI' | 'CO' | 'PP' | 'HR' | 'QM' | 'PM' | 'BC' | 'CM' {
   const upper = (text || '').toUpperCase();
   if (
     upper.includes('원가') ||
@@ -760,6 +760,9 @@ function detectSapModuleFromText(text: string): 'SD' | 'MM' | 'FI' | 'CO' | 'PP'
   }
   if (upper.includes('인사') || upper.includes('급여') || upper.includes('근태') || upper.includes('HR ')) {
     return 'HR';
+  }
+  if (upper.includes('공통 영역') || upper.includes('공통영역') || upper.includes('공통코드') || upper.includes('CM ')) {
+    return 'CM';
   }
   return 'SD';
 }
@@ -945,7 +948,7 @@ Your job is to convert raw meeting transcripts/notes (in Korean or mixed Korean/
 Return ONLY valid JSON with:
 {
   "title": "concise Korean meeting/program topic title (max 45 chars)",
-  "detectedModule": "SD" | "MM" | "FI" | "CO" | "PP" | "HR" | "QM" | "PM" | "BC",
+  "detectedModule": "SD" | "MM" | "FI" | "CO" | "PP" | "HR" | "QM" | "PM" | "BC" | "CM",
   "minutesMarkdown": "structured Korean markdown"
 }
 
@@ -1003,7 +1006,7 @@ Generate the structured JSON output.`;
       mode,
     });
 
-    const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+    const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC', 'CM'];
     const detectedModule = validModules.includes(String(parsed?.detectedModule || '').toUpperCase())
       ? String(parsed.detectedModule).toUpperCase()
       : fallback.detectedModule;
@@ -1058,7 +1061,7 @@ Return ONLY valid JSON:
 {
   "recommendedSampleType": "01" | "02" | "03" | "04",
   "confidenceReason": "2~3 sentences in Korean explaining WHY this sample type fits best",
-  "suggestedModule": "SD" | "MM" | "FI" | "CO" | "PP" | "HR" | "QM" | "PM" | "BC",
+  "suggestedModule": "SD" | "MM" | "FI" | "CO" | "PP" | "HR" | "QM" | "PM" | "BC" | "CM",
   "suggestedProgramId": "ZR_...",
   "suggestedTcode": "Z...",
   "suggestedTitle": "concise Korean program title",
@@ -1107,7 +1110,7 @@ Recommend the optimal COMMON sample type and program identifiers.`;
       ? (String(parsed.recommendedSampleType) as '01' | '02' | '03' | '04')
       : fallback.recommendedSampleType;
 
-    const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+    const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC', 'CM'];
     const suggestedModule = validModules.includes(String(parsed?.suggestedModule || '').toUpperCase())
       ? String(parsed.suggestedModule).toUpperCase()
       : fallback.suggestedModule;
@@ -1184,7 +1187,7 @@ function normalizeGeneratedFullSpec(raw: any, opts: {
   programId: string;
   tcode: string;
 }) {
-  const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+  const validModules = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC', 'CM'];
   const resolvedModule = validModules.includes(String(raw.module || '').toUpperCase())
     ? String(raw.module).toUpperCase()
     : opts.module || 'SD';

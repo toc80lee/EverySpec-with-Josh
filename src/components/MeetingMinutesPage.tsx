@@ -511,10 +511,10 @@ export const MeetingMinutesPage: React.FC<MeetingMinutesPageProps> = ({
                           }}
                           className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-800 cursor-pointer"
                         >
-                          {(['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'] as SapModule[]).map(
+                          {(['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC', 'CM'] as SapModule[]).map(
                             (m) => (
                               <option key={m} value={m}>
-                                {m}
+                                {m === 'CM' ? 'CM (공통 영역)' : m}
                               </option>
                             )
                           )}

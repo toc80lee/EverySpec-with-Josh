@@ -205,3 +205,34 @@ export const SAP_GUI_THEMES: Record<SapGuiTheme, SapGuiThemeInfo> = {
 };
 
 export const DEFAULT_SAP_THEME: SapGuiTheme = 'blue_crystal';
+export const SAP_THEME_STORAGE_KEY = 'sap_gui_mockup_theme';
+
+export function isValidSapGuiTheme(value: unknown): value is SapGuiTheme {
+  return value === 'blue_crystal' || value === 'belize' || value === 'quartz';
+}
+
+export function loadSavedSapTheme(): SapGuiTheme {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return DEFAULT_SAP_THEME;
+    }
+    const saved = window.localStorage.getItem(SAP_THEME_STORAGE_KEY);
+    if (isValidSapGuiTheme(saved)) {
+      return saved;
+    }
+  } catch {
+    // localStorage unavailable (e.g., restricted iframe or privacy mode)
+  }
+  return DEFAULT_SAP_THEME;
+}
+
+export function saveSapTheme(theme: SapGuiTheme): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    if (isValidSapGuiTheme(theme)) {
+      window.localStorage.setItem(SAP_THEME_STORAGE_KEY, theme);
+    }
+  } catch {
+    // Ignore storage quota or security errors
+  }
+}

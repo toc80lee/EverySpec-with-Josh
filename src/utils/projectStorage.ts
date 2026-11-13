@@ -7,7 +7,8 @@ export const COMMON_PROJECT_CODE = 'COMMON';
 export const TEMP_PROJECT_CODE = 'TEMP';
 export const COMMON_SAMPLE_PROGRAM_IDS = ['ZRALV0010', 'ZRALV0020', 'ZRALV0030', 'ZRALV0040'];
 
-const ALL_MODULES: SapModule[] = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC'];
+export const ALL_SAP_MODULES: SapModule[] = ['SD', 'MM', 'FI', 'CO', 'PP', 'HR', 'QM', 'PM', 'BC', 'CM'];
+const ALL_MODULES: SapModule[] = ALL_SAP_MODULES;
 
 export const SYSTEM_PROJECTS: SapProject[] = [
   {
@@ -73,9 +74,13 @@ function ensureSystemProjects(list: SapProject[]): SapProject[] {
   const existingTemp = list.find((p) => p.code === TEMP_PROJECT_CODE);
 
   return [
-    existingCommon ? { ...existingCommon, is_system: true, visibility: 'common' } : SYSTEM_PROJECTS[0],
+    existingCommon
+      ? { ...existingCommon, is_system: true, visibility: 'common', modules: ALL_SAP_MODULES }
+      : SYSTEM_PROJECTS[0],
     ...customProjects,
-    existingTemp ? { ...existingTemp, is_system: true, visibility: 'temp' } : SYSTEM_PROJECTS[1],
+    existingTemp
+      ? { ...existingTemp, is_system: true, visibility: 'temp', modules: ALL_SAP_MODULES }
+      : SYSTEM_PROJECTS[1],
   ];
 }
 

@@ -930,6 +930,7 @@ export const SpecEditor: React.FC<SpecEditorProps> = ({
                   <option value="QM">QM (Quality Management)</option>
                   <option value="PM">PM (Plant Maintenance)</option>
                   <option value="BC">BC (Basis & System)</option>
+                  <option value="CM">CM (공통 영역 · Common)</option>
                 </select>
               </div>
 
