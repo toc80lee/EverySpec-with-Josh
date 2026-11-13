@@ -18,12 +18,17 @@ interface AlvToolbarProps {
   onOpenDetail: () => void;
   onSort: (asc: boolean) => void;
   onFilter: () => void;
+  onFind?: () => void;
+  onFindNext?: () => void;
   filterQuery: string;
   onClearFilter: () => void;
   onToggleTotals: () => void;
+  onToggleSubtotals?: () => void;
   onExport: () => void;
   onPrint: () => void;
   onInfo: () => void;
+  onOpenLayout?: () => void;
+  onOpenGraphic?: () => void;
   onToggleColumnText?: () => void;
   onOptimizeWidth?: () => void;
   onCustomAction?: (btn: AlvToolbarButton) => void;
@@ -321,12 +326,17 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
   onOpenDetail,
   onSort,
   onFilter,
+  onFind,
+  onFindNext,
   filterQuery,
   onClearFilter,
   onToggleTotals,
+  onToggleSubtotals,
   onExport,
   onPrint,
   onInfo,
+  onOpenLayout,
+  onOpenGraphic,
   onToggleColumnText,
   onOptimizeWidth,
   onCustomAction,
@@ -347,6 +357,12 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
         onOpenDetail();
         break;
       case '&GRAPHIC':
+        if (onOpenGraphic) {
+          onOpenGraphic();
+        } else if (onCustomAction) {
+          onCustomAction(btn);
+        }
+        break;
       case '&SELECT_MODE':
       case '&HIERARCHY':
         if (onCustomAction) onCustomAction(btn);
@@ -358,13 +374,22 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
         onSort(false);
         break;
       case '&FIND':
+        if (onFind) onFind();
+        else onFilter();
+        break;
       case '&FIND_MORE':
+        if (onFindNext) onFindNext();
+        else onFilter();
+        break;
       case '&FILTER':
         onFilter();
         break;
       case '&TOTAL':
-      case '&SUBTOTAL':
         onToggleTotals();
+        break;
+      case '&SUBTOTAL':
+        if (onToggleSubtotals) onToggleSubtotals();
+        else onToggleTotals();
         break;
       case '&PRINT':
         onPrint();
@@ -380,6 +405,9 @@ export const AlvToolbar: React.FC<AlvToolbarProps> = ({
         if (onOptimizeWidth) onOptimizeWidth();
         break;
       case '&LAYOUT':
+        if (onOpenLayout) onOpenLayout();
+        else onInfo();
+        break;
       case '&INFO':
         onInfo();
         break;

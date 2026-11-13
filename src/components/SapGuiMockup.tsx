@@ -18,6 +18,10 @@ import {
   Loader2,
   Palette,
   Settings,
+  Save,
+  Bookmark,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import { ProgramSpec, AlvField, SelectionParameter, AlvErrorLog } from '../types/sap';
 import { SapMultipleSelectionModal } from './SapMultipleSelectionModal';
@@ -27,10 +31,24 @@ import { AlvToolbar } from './AlvToolbar';
 import { SapPivotBrowser } from './SapPivotBrowser';
 import { SapTreeAlvSimulator } from './SapTreeAlvSimulator';
 import { SapThemeSettingsModal } from './SapThemeSettingsModal';
+import { SapF4ValueHelpModal } from './SapF4ValueHelpModal';
+import { SapAlvFilterModal, AlvColumnFilter } from './SapAlvFilterModal';
+import { SapAlvLayoutModal } from './SapAlvLayoutModal';
+import { SapBusinessGraphicModal } from './SapBusinessGraphicModal';
 import { SapGuiTheme, SAP_GUI_THEMES, DEFAULT_SAP_THEME } from '../data/sapGuiThemes';
 import { DEFAULT_ALV_TOOLBAR_BUTTONS } from '../data/defaultToolbarButtons';
 import { downloadFile } from '../utils/specExport';
 import { getSapColorHex } from './SapColorSearchHelpModal';
+import {
+  AlvLayoutConfigState,
+  SelectionVariant,
+  deleteSelectionVariant,
+  filterRowsBySelectionParams,
+  getSelectionVariants,
+  saveSelectionVariant,
+  validateAlvEdits,
+  validateSelectionParams,
+} from '../utils/sapSimulatorHelpers';
 
 interface SapGuiMockupProps {
   spec: ProgramSpec;
@@ -282,8 +300,9 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
   const themeInfo = SAP_GUI_THEMES[currentTheme] || SAP_GUI_THEMES[DEFAULT_SAP_THEME];
   const themeStyles = themeInfo.styles;
 
-  // Modals
+  // Modals & Interactive Simulator State
   const [activeParamForMulti, setActiveParamForMulti] = useState<SelectionParameter | null>(null);
+  const [f4Target, setF4Target] = useState<{ param: SelectionParameter; side: 'low' | 'high' } | null>(null);
   const [drilldownInfo, setDrilldownInfo] = useState<{
     tcode: string;
     fieldValue: string;
@@ -293,6 +312,84 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
   } | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState<boolean>(false);
   const [isGeneratingMockData, setIsGeneratingMockData] = useState<boolean>(false);
+
+  // Selection Screen Variant, Validation & Filtering
+  const [selectionVariants, setSelectionVariants] = useState<SelectionVariant[]>(() =>
+    getSelectionVariants(spec.program_id)
+  );
+  const [activeVariantName, setActiveVariantName] = useState<string>('');
+  const [isSavingVariant, setIsSavingVariant] = useState<boolean>(false);
+  const [variantNameDraft, setVariantNameDraft] = useState<string>('');
+  const [obligatoryErrorIds, setObligatoryErrorIds] = useState<string[]>([]);
+  const [isSelectionFilterActive, setIsSelectionFilterActive] = useState<boolean>(false);
+  const [appliedSelectionNames, setAppliedSelectionNames] = useState<string[]>([]);
+  const [selectionTotalsOnlyHint, setSelectionTotalsOnlyHint] = useState<boolean>(false);
+
+  // ALV Edit & Save Validation Protocol
+  const [dirtyCells, setDirtyCells] = useState<Set<string>>(new Set());
+  const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
+  const [runtimeErrorLogs, setRuntimeErrorLogs] = useState<AlvErrorLog[]>([]);
+
+  // ALV Filter / Find Modal & State (replaces window.prompt)
+  const [columnFilter, setColumnFilter] = useState<AlvColumnFilter>({
+    fieldname: '__ALL__',
+    operator: 'contains',
+    value: '',
+  });
+  const [filterModalState, setFilterModalState] = useState<{
+    open: boolean;
+    mode: 'find' | 'filter';
+    target: 'header' | 'item';
+  }>({ open: false, mode: 'filter', target: 'header' });
+  const [findTerm, setFindTerm] = useState<string>('');
+  const [findMatchIdx, setFindMatchIdx] = useState<number>(-1);
+
+  // ALV Layout Variant & Subtotal Break & Business Graphics
+  const [layoutOverride, setLayoutOverride] = useState<AlvLayoutConfigState | null>(null);
+  const [activeLayoutVariantName, setActiveLayoutVariantName] = useState<string | null>(null);
+  const [isLayoutModalOpen, setIsLayoutModalOpen] = useState<boolean>(false);
+  const [isGraphicModalOpen, setIsGraphicModalOpen] = useState<boolean>(false);
+
+  // Reset spec-scoped simulator overrides when switching specs
+  useEffect(() => {
+    setSelectionVariants(getSelectionVariants(spec.program_id));
+    setActiveVariantName('');
+    setObligatoryErrorIds([]);
+    setIsSelectionFilterActive(false);
+    setAppliedSelectionNames([]);
+    setSelectionTotalsOnlyHint(false);
+    setDirtyCells(new Set());
+    setCellErrors({});
+    setRuntimeErrorLogs([]);
+    setLayoutOverride(null);
+    setActiveLayoutVariantName(null);
+    setColumnFilter({ fieldname: '__ALL__', operator: 'contains', value: '' });
+    setFilterQuery('');
+  }, [spec.id, spec.program_id]);
+
+  // Effective Field Catalog & Layout options (combining spec + simulator Layout Variant)
+  const effectiveFieldCatalog = useMemo(() => {
+    if (!layoutOverride) return spec.field_catalog;
+    const byName = new Map(spec.field_catalog.map((f) => [f.fieldname, f]));
+    const ordered: AlvField[] = [];
+    layoutOverride.visibleFields.forEach((fn) => {
+      const f = byName.get(fn);
+      if (f) ordered.push(f);
+    });
+    return ordered.length > 0 ? ordered : spec.field_catalog;
+  }, [spec.field_catalog, layoutOverride]);
+
+  const effectiveSubtotalField = layoutOverride?.subtotalField || null;
+  const effectiveZebra = layoutOverride ? layoutOverride.zebra : !!spec.layout?.zebra;
+  const effectiveNoHgrid = layoutOverride ? layoutOverride.no_hgridln : !!spec.layout?.no_hgridln;
+  const effectiveNoVgrid = layoutOverride ? layoutOverride.no_vgridln : !!spec.layout?.no_vgridln;
+  const effectiveTotalsOnly = selectionTotalsOnlyHint || !!spec.layout?.totals_only;
+  const hasEditableFields = useMemo(
+    () =>
+      spec.field_catalog.some((f) => !!f.edit) ||
+      !!spec.item_grid?.field_catalog?.some((f) => !!f.edit),
+    [spec.field_catalog, spec.item_grid]
+  );
 
   // Generate realistic mock data using Gemini AI via server-side endpoint with smart fallback
   const handleGenerateAiMockData = async () => {
@@ -681,11 +778,143 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
     setSortAsc(asc);
   };
 
+  // Selection Screen Execution (F8): Obligatory check + Filter ALV Rows
+  const handleExecuteSelection = () => {
+    const validation = validateSelectionParams(spec.selection_params);
+    if (!validation.valid) {
+      setObligatoryErrorIds(validation.missingIds);
+      setScreenMode('selection');
+      setStatusMessage({
+        text: `Fill out all required entry fields: ${validation.missingLabels.join(', ')}`,
+        type: 'E',
+      });
+      return;
+    }
+
+    setObligatoryErrorIds([]);
+    const result = filterRowsBySelectionParams(
+      rows,
+      spec.selection_params,
+      spec.field_catalog
+    );
+    setIsSelectionFilterActive(true);
+    setAppliedSelectionNames(result.appliedParams);
+    setSelectionTotalsOnlyHint(result.summaryModeHint);
+    setScreenMode('alv');
+    setSelectedRowIndex(result.filteredRows.length > 0 ? 0 : null);
+    setStatusMessage({
+      text:
+        result.appliedParams.length > 0
+          ? `Executed (${result.appliedParams.join(', ')}): ${result.filteredRows.length} of ${rows.length} record(s) matched.`
+          : `Executed: ${rows.length} record(s) displayed.`,
+      type: result.filteredRows.length === 0 && rows.length > 0 ? 'W' : 'S',
+    });
+  };
+
+  // ALV Editable Data Check & Save Protocol
+  const handleSaveAlvEdits = () => {
+    const validation = validateAlvEdits(
+      rows,
+      spec.field_catalog,
+      dirtyCells.size > 0 ? dirtyCells : undefined
+    );
+    if (validation.errors.length > 0) {
+      setCellErrors(validation.cellErrors);
+      setRuntimeErrorLogs(validation.errors);
+      setShowErrorLog(true);
+      setStatusMessage({
+        text: `Validation failed: ${validation.errors.length} error(s) found. Check Error Log.`,
+        type: 'E',
+      });
+      return;
+    }
+
+    const updatedCount = dirtyCells.size;
+    setCellErrors({});
+    setRuntimeErrorLogs([]);
+    setDirtyCells(new Set());
+    setShowErrorLog(false);
+    if (onUpdateSpec) {
+      onUpdateSpec({ ...spec, mock_rows: rows });
+    }
+    setStatusMessage({
+      text:
+        updatedCount > 0
+          ? `Data saved successfully (${updatedCount} modified cell(s) committed).`
+          : 'Data verified and saved (no validation errors).',
+      type: 'S',
+    });
+  };
+
+  // Toggle Group Subtotals (&SUBTOTAL)
+  const handleToggleSubtotals = () => {
+    if (effectiveSubtotalField) {
+      setLayoutOverride((prev) => ({
+        visibleFields: prev?.visibleFields || spec.field_catalog.map((f) => f.fieldname),
+        subtotalField: null,
+        zebra: prev?.zebra ?? !!spec.layout?.zebra,
+        cwidth_opt: prev?.cwidth_opt ?? isOptimizedWidth,
+        no_hgridln: prev?.no_hgridln ?? !!spec.layout?.no_hgridln,
+        no_vgridln: prev?.no_vgridln ?? !!spec.layout?.no_vgridln,
+      }));
+      setStatusMessage({
+        text: 'ALV group subtotals cleared (Grand total only).',
+        type: 'S',
+      });
+      return;
+    }
+
+    const candidate =
+      selectedColumnFields.find((fn) => {
+        const f = spec.field_catalog.find((c) => c.fieldname === fn);
+        return f && !f.do_sum && !f.checkbox;
+      }) ||
+      spec.field_catalog.find((f) => f.sort_enable && !f.do_sum)?.fieldname ||
+      spec.field_catalog.find(
+        (f) =>
+          !f.do_sum &&
+          !f.checkbox &&
+          f.fieldname !== 'ZICON' &&
+          f.fieldname !== 'LIGHTS' &&
+          f.fieldname !== 'STATUS' &&
+          !f.key
+      )?.fieldname ||
+      spec.field_catalog[0]?.fieldname;
+
+    if (!candidate) return;
+
+    handleMultiSort([candidate], true);
+    setShowTotals(true);
+    setLayoutOverride((prev) => ({
+      visibleFields: prev?.visibleFields || spec.field_catalog.map((f) => f.fieldname),
+      subtotalField: candidate,
+      zebra: prev?.zebra ?? !!spec.layout?.zebra,
+      cwidth_opt: prev?.cwidth_opt ?? isOptimizedWidth,
+      no_hgridln: prev?.no_hgridln ?? !!spec.layout?.no_hgridln,
+      no_vgridln: prev?.no_vgridln ?? !!spec.layout?.no_vgridln,
+    }));
+    const colLabel =
+      spec.field_catalog.find((f) => f.fieldname === candidate)?.coltext || candidate;
+    setStatusMessage({
+      text: `Subtotals grouped by [${colLabel}] (${candidate}).`,
+      type: 'S',
+    });
+  };
+
   // Filter & Sorted rows
   const displayedRows = useMemo(() => {
     let result = [...rows];
 
-    // Sta. status multi-select filter: only rows matching one of the selected statuses are shown
+    // 1. Selection Screen execution filter (when Execute F8 was run)
+    if (isSelectionFilterActive) {
+      result = filterRowsBySelectionParams(
+        result,
+        spec.selection_params,
+        spec.field_catalog
+      ).filteredRows;
+    }
+
+    // 2. Sta. status multi-select filter: only rows matching one of the selected statuses are shown
     if (statusField && selectedStatusFilters) {
       result = result.filter(row => {
         const val = String(row[statusField.fieldname] || '').trim();
@@ -694,16 +923,28 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
       });
     }
 
-    // Text filter query
-    if (filterQuery.trim()) {
-      const q = filterQuery.toLowerCase();
-      result = result.filter(row =>
-        Object.values(row).some(v => String(v).toLowerCase().includes(q))
-      );
+    // 3. Column / Text Filter query
+    const activeFilterVal = columnFilter.value.trim() || filterQuery.trim();
+    if (activeFilterVal) {
+      const q = activeFilterVal.toLowerCase();
+      const targetCol = columnFilter.fieldname;
+      const op = columnFilter.operator;
+      result = result.filter((row) => {
+        const candidates =
+          targetCol && targetCol !== '__ALL__'
+            ? [row[targetCol]]
+            : Object.values(row);
+        return candidates.some((v) => {
+          const str = String(v ?? '').toLowerCase();
+          if (op === 'equals') return str === q;
+          if (op === 'gt') return Number(str.replace(/,/g, '')) > Number(q.replace(/,/g, ''));
+          if (op === 'lt') return Number(str.replace(/,/g, '')) < Number(q.replace(/,/g, ''));
+          return str.includes(q);
+        });
+      });
     }
 
-    // Column sort:
-    // 1. If user interacted via toolbar sort buttons or column click, sort by sortColumns immediately
+    // 4. Column sort:
     if (sortColumns.length > 0) {
       result.sort((a, b) => {
         for (const sc of sortColumns) {
@@ -733,7 +974,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
           : String(valB || '').localeCompare(String(valA || ''));
       });
     } else {
-      // 2. Pre-configured enabledSortFields from spec Sort tab
+      // Pre-configured enabledSortFields from spec Sort tab
       const enabledSortFields = spec.field_catalog.filter(f => !!f.sort_enable);
       if (enabledSortFields.length > 0) {
         const sortedEnabledFields = [...enabledSortFields].sort((a, b) => {
@@ -762,7 +1003,19 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
       }
     }
     return result;
-  }, [rows, selectedStatusFilters, statusField, filterQuery, sortField, sortAsc, sortColumns, spec.field_catalog]);
+  }, [
+    rows,
+    isSelectionFilterActive,
+    spec.selection_params,
+    selectedStatusFilters,
+    statusField,
+    filterQuery,
+    columnFilter,
+    sortField,
+    sortAsc,
+    sortColumns,
+    spec.field_catalog,
+  ]);
 
   // Totals calculations for DO_SUM fields
   const totals = useMemo(() => {
@@ -933,13 +1186,56 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
     });
   };
 
-  // Cell editing
+  // Find Next cycling across displayedRows
+  const handleFindInRows = (termOverride?: string) => {
+    const q = (termOverride !== undefined ? termOverride : findTerm).trim().toLowerCase();
+    if (!q) {
+      setFilterModalState({ open: true, mode: 'find', target: 'header' });
+      return;
+    }
+    setFindTerm(q);
+    const matchingIndices = displayedRows
+      .map((row, idx) =>
+        Object.values(row).some((v) => String(v ?? '').toLowerCase().includes(q)) ? idx : -1
+      )
+      .filter((idx) => idx !== -1);
+
+    if (matchingIndices.length === 0) {
+      setStatusMessage({ text: `No occurrences of "${q}" found.`, type: 'W' });
+      return;
+    }
+
+    const nextPos = matchingIndices.findIndex((i) => i > findMatchIdx);
+    const targetRowIdx = nextPos !== -1 ? matchingIndices[nextPos] : matchingIndices[0];
+    setFindMatchIdx(targetRowIdx);
+    setSelectedRowIndex(targetRowIdx);
+    setStatusMessage({
+      text: `Match found at row ${targetRowIdx + 1} (${matchingIndices.length} match(es) for "${q}").`,
+      type: 'S',
+    });
+  };
+
+  // Cell editing (tracks dirty cells & clears field error on re-edit)
   const handleCellEdit = (rowIndex: number, fieldname: string, newVal: any) => {
+    const targetRow = displayedRows[rowIndex] || rows[rowIndex];
+    const realIndex = rows.indexOf(targetRow);
+    const idxToUpdate = realIndex !== -1 ? realIndex : rowIndex;
     const updated = [...rows];
-    updated[rowIndex] = { ...updated[rowIndex], [fieldname]: newVal };
+    updated[idxToUpdate] = { ...updated[idxToUpdate], [fieldname]: newVal };
     setRows(updated);
-    if (onUpdateSpec) {
-      onUpdateSpec({ ...spec, mock_rows: updated });
+
+    const cellKey = `${idxToUpdate}:${fieldname}`;
+    setDirtyCells((prev) => {
+      const next = new Set(prev);
+      next.add(cellKey);
+      return next;
+    });
+    if (cellErrors[cellKey]) {
+      setCellErrors((prev) => {
+        const next = { ...prev };
+        delete next[cellKey];
+        return next;
+      });
     }
   };
 
@@ -1018,17 +1314,19 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
         </div>
       </div>
 
-      {/* 2. Standard Application Sub-Toolbar with Execute icon (Uncluttered per RFQ v1.09 Page 2) */}
+      {/* 2. Standard Application Sub-Toolbar with Execute (F8), Save Edits & Active Filter Indicator */}
       <div className={`flex items-center justify-between px-3 py-1 border-b gap-2 flex-wrap transition-colors duration-200 ${themeStyles.subToolbarBg} ${themeStyles.subToolbarBorder} ${themeStyles.subToolbarText}`}>
         <div className="flex items-center gap-2">
-          {/* SAP Iconic Clock with Green Checkmark (Execute F8) */}
+          {/* SAP Iconic Clock with Green Checkmark (Execute F8 / Back F3) */}
           <button
+            type="button"
             onClick={() => {
-              setScreenMode(screenMode === 'alv' ? 'selection' : 'alv');
-              setStatusMessage({
-                text: screenMode === 'alv' ? 'Switched to Selection Screen.' : 'ALV Grid Displayed.',
-                type: 'S',
-              });
+              if (screenMode === 'selection') {
+                handleExecuteSelection();
+              } else {
+                setScreenMode('selection');
+                setStatusMessage({ text: 'Switched to Selection Screen (F3).', type: 'S' });
+              }
             }}
             title={screenMode === 'alv' ? 'Go to Selection Screen (F3)' : 'Execute (F8)'}
             className="p-1 rounded bg-[#e8f1fa] hover:bg-white border border-[#9bbadb] text-slate-700 shadow-2xs flex items-center justify-center cursor-pointer"
@@ -1038,11 +1336,62 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
               <Check className="w-4 h-4 text-emerald-600 font-extrabold absolute -top-0.5 -right-0.5 drop-shadow-xs" strokeWidth={3.5} />
             </div>
           </button>
+
+          {/* SAP Save / Validate Data button (Visible when editable fields exist or dirty cells exist) */}
+          {screenMode === 'alv' && (hasEditableFields || dirtyCells.size > 0) && (
+            <button
+              type="button"
+              onClick={handleSaveAlvEdits}
+              title={
+                dirtyCells.size > 0
+                  ? `Validate & Save ${dirtyCells.size} modified cell(s) (Ctrl+S)`
+                  : 'Validate Editable Grid Data & Save'
+              }
+              className={`px-2 py-0.5 rounded border text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-all shadow-2xs ${
+                dirtyCells.size > 0
+                  ? 'bg-amber-100 border-amber-500 text-amber-900 hover:bg-amber-200'
+                  : 'bg-white border-[#9bbadb] text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Save className={`w-3.5 h-3.5 ${dirtyCells.size > 0 ? 'text-amber-700' : 'text-blue-700'}`} />
+              <span>Save{dirtyCells.size > 0 ? ` (${dirtyCells.size})` : ''}</span>
+            </button>
+          )}
+
+          {/* Active Selection Screen Filter Indicator */}
+          {screenMode === 'alv' && isSelectionFilterActive && (
+            <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded text-[10px] text-emerald-900">
+              <span>
+                Selection Active{appliedSelectionNames.length > 0 ? `: ${appliedSelectionNames.join(', ')}` : ''} ({displayedRows.length}/{rows.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSelectionFilterActive(false);
+                  setAppliedSelectionNames([]);
+                  setSelectionTotalsOnlyHint(false);
+                  setStatusMessage({ text: 'Selection screen filter cleared. Showing all rows.', type: 'S' });
+                }}
+                title="Clear Selection Filter"
+                className="text-emerald-700 hover:text-red-700 font-bold cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {/* Active Layout Variant Badge */}
+          {screenMode === 'alv' && activeLayoutVariantName && activeLayoutVariantName !== '/STANDARD' && (
+            <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[10px] font-mono text-blue-800">
+              Layout: {activeLayoutVariantName}
+            </span>
+          )}
         </div>
 
         {/* View Switcher: Selection vs ALV Grid */}
         <div className={`flex items-center gap-1 p-0.5 rounded border transition-colors duration-200 ${themeStyles.switcherContainerBg}`}>
           <button
+            type="button"
             onClick={() => setScreenMode('selection')}
             className={`px-2.5 py-0.5 text-[11px] rounded transition-colors flex items-center gap-1 cursor-pointer ${
               screenMode === 'selection'
@@ -1054,6 +1403,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
             Selection Screen
           </button>
           <button
+            type="button"
             onClick={() => setScreenMode('alv')}
             className={`px-2.5 py-0.5 text-[11px] rounded transition-colors flex items-center gap-1 cursor-pointer ${
               screenMode === 'alv'
@@ -1083,7 +1433,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
             
             if (rawTargets.length === 0) {
               setStatusMessage({
-                text: '정렬할 열을 먼저 선택하세요.',
+                text: 'Select a column header first to sort.',
                 type: 'W',
               });
               return;
@@ -1091,19 +1441,23 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
 
             handleMultiSort(rawTargets, asc);
             setStatusMessage({
-              text: `${rawTargets.length}개 열 [${rawTargets.join(', ')}] 기준 ${
-                asc ? '오름차순 (Ascending)' : '내림차순 (Descending)'
-              } 정렬 완료`,
+              text: `Sorted by ${rawTargets.join(', ')} (${asc ? 'Ascending' : 'Descending'}).`,
               type: 'S',
             });
           }}
-          onFilter={() => {
-            const q = prompt('Enter search filter for ALV Grid:', filterQuery);
-            if (q !== null) setFilterQuery(q);
+          onFind={() => setFilterModalState({ open: true, mode: 'find', target: 'header' })}
+          onFindNext={() => handleFindInRows()}
+          onFilter={() => setFilterModalState({ open: true, mode: 'filter', target: 'header' })}
+          filterQuery={columnFilter.value || filterQuery}
+          onClearFilter={() => {
+            setFilterQuery('');
+            setColumnFilter({ fieldname: '__ALL__', operator: 'contains', value: '' });
+            setStatusMessage({ text: 'ALV Grid filter cleared.', type: 'S' });
           }}
-          filterQuery={filterQuery}
-          onClearFilter={() => setFilterQuery('')}
           onToggleTotals={handleToggleTotals}
+          onToggleSubtotals={handleToggleSubtotals}
+          onOpenLayout={() => setIsLayoutModalOpen(true)}
+          onOpenGraphic={() => setIsGraphicModalOpen(true)}
           onToggleColumnText={handleToggleColumnText}
           onOptimizeWidth={handleOptimizeWidth}
           onExport={handleExportCsv}
@@ -1115,6 +1469,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
             })
           }
           onCustomAction={(btn) => {
+            const fnUpper = (btn.function || '').toUpperCase();
+            if (fnUpper.includes('SAVE') || fnUpper.includes('POST') || fnUpper.includes('CHECK')) {
+              handleSaveAlvEdits();
+              return;
+            }
             setStatusMessage({
               text: `Button [${btn.text}] (${btn.function}) executed`,
               type: 'S',
@@ -1128,8 +1487,176 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
       {/* 4. Main Body: ALV Grid or Selection Screen */}
       <div className="flex-1 flex flex-col overflow-hidden bg-white relative">
         {screenMode === 'selection' ? (
-          /* Selection Screen with Theme styling: Titled Frame Boxes & Radio Button Groups */
-          <div className={`flex-1 p-5 overflow-y-auto space-y-4 transition-colors duration-200 ${themeStyles.selectionBoxBg}`}>
+          /* Selection Screen with Variant Bar, F4 Value Help, Titled Frame Boxes, Radio Groups & Execute F8 */
+          <div
+            onKeyDown={(e) => {
+              if (e.key === 'F8') {
+                e.preventDefault();
+                handleExecuteSelection();
+              }
+            }}
+            className={`flex-1 p-5 overflow-y-auto space-y-4 transition-colors duration-200 ${themeStyles.selectionBoxBg}`}
+          >
+            {/* Compact SAP Selection Variant & Action Bar */}
+            <div className="max-w-2xl flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-300 rounded px-3 py-1.5 shadow-2xs text-xs">
+              <div className="flex items-center gap-2">
+                <Bookmark className="w-3.5 h-3.5 text-blue-700" />
+                <span className="font-semibold text-slate-700">Variant:</span>
+                <select
+                  value={activeVariantName}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setActiveVariantName(name);
+                    if (!name) return;
+                    const found = selectionVariants.find((v) => v.name === name);
+                    if (found && onUpdateSpec) {
+                      const nextParams = spec.selection_params.map((p) => {
+                        const saved = found.values[p.name];
+                        return saved
+                          ? {
+                              ...p,
+                              low: saved.low ?? '',
+                              high: saved.high ?? '',
+                              multi_values: saved.multi_values || [],
+                            }
+                          : p;
+                      });
+                      onUpdateSpec({ ...spec, selection_params: nextParams });
+                      setObligatoryErrorIds([]);
+                      setStatusMessage({
+                        text: `Selection Variant [${found.name}] loaded.`,
+                        type: 'S',
+                      });
+                    }
+                  }}
+                  className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs font-mono min-w-[140px]"
+                >
+                  <option value="">-- Select Variant --</option>
+                  {selectionVariants.map((v) => (
+                    <option key={v.id} value={v.name}>
+                      {v.name} ({v.updatedAt})
+                    </option>
+                  ))}
+                </select>
+                {activeVariantName && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const found = selectionVariants.find((v) => v.name === activeVariantName);
+                      if (!found) return;
+                      const next = deleteSelectionVariant(spec.program_id, found.id);
+                      setSelectionVariants(next);
+                      setActiveVariantName('');
+                      setStatusMessage({
+                        text: `Variant [${found.name}] deleted.`,
+                        type: 'S',
+                      });
+                    }}
+                    title="Delete Selected Variant"
+                    className="p-1 text-slate-400 hover:text-red-600 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {isSavingVariant ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={variantNameDraft}
+                      onChange={(e) => setVariantNameDraft(e.target.value)}
+                      placeholder="/CUS_VAR1"
+                      autoFocus
+                      className="w-28 border border-blue-400 rounded px-1.5 py-0.5 text-xs font-mono uppercase focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const raw = (variantNameDraft.trim() || '/VAR_01').toUpperCase();
+                        const name = raw.startsWith('/') ? raw : `/${raw}`;
+                        const values: SelectionVariant['values'] = {};
+                        spec.selection_params.forEach((p) => {
+                          values[p.name] = {
+                            low: p.low,
+                            high: p.high,
+                            multi_values: p.multi_values,
+                          };
+                        });
+                        const next = saveSelectionVariant(spec.program_id, {
+                          id: `selvar-${Date.now()}`,
+                          name,
+                          updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          values,
+                        });
+                        setSelectionVariants(next);
+                        setActiveVariantName(name);
+                        setIsSavingVariant(false);
+                        setVariantNameDraft('');
+                        setStatusMessage({
+                          text: `Selection Variant [${name}] saved.`,
+                          type: 'S',
+                        });
+                      }}
+                      className="px-2 py-0.5 bg-blue-600 text-white rounded text-[11px] font-semibold cursor-pointer"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSavingVariant(false);
+                        setVariantNameDraft('');
+                      }}
+                      className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[11px] cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsSavingVariant(true)}
+                      title="Save Current Values as Variant"
+                      className="px-2 py-0.5 bg-slate-50 hover:bg-blue-50 border border-slate-300 rounded text-[11px] font-medium text-slate-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Save className="w-3 h-3 text-blue-700" />
+                      <span>Save Variant</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!onUpdateSpec) return;
+                        const resetParams = spec.selection_params.map((p) => ({
+                          ...p,
+                          low:
+                            p.kind === 'RADIOBUTTON' || p.kind === 'CHECKBOX'
+                              ? p.default_val?.toUpperCase() === 'X'
+                                ? 'X'
+                                : ''
+                              : p.default_val && p.default_val !== 'SY-DATUM'
+                              ? p.default_val
+                              : '',
+                          high: '',
+                          multi_values: [],
+                        }));
+                        onUpdateSpec({ ...spec, selection_params: resetParams });
+                        setActiveVariantName('');
+                        setObligatoryErrorIds([]);
+                        setStatusMessage({ text: 'Selection screen reset to default values.', type: 'S' });
+                      }}
+                      title="Reset Selection Values to Defaults"
+                      className="p-1 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded text-slate-600 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
             {(() => {
               type RenderSegment =
                 | { type: 'box'; key: string; blockId: string; blockTitle: string; items: SelectionParameter[] }
@@ -1244,6 +1771,9 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                   );
                 }
 
+                const hasMissingError = obligatoryErrorIds.includes(param.id);
+                const multiCount = param.multi_values?.length || 0;
+
                 return (
                   <div key={param.id} className="flex items-center text-xs gap-3">
                     <div className="w-48 text-right font-medium text-slate-700 flex items-center justify-end gap-1 shrink-0">
@@ -1252,39 +1782,87 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1 flex-wrap">
-                      <input
-                        type="text"
-                        value={param.low || ''}
-                        onChange={(e) => {
-                          const updatedParams = spec.selection_params.map((p) =>
-                            p.id === param.id ? { ...p, low: e.target.value } : p
-                          );
-                          if (onUpdateSpec) onUpdateSpec({ ...spec, selection_params: updatedParams });
-                        }}
-                        placeholder={param.default_val || ''}
-                        className="w-32 bg-white border border-slate-400 px-2 py-0.5 text-xs font-mono focus:outline-none focus:border-blue-600 shadow-inner"
-                      />
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          value={param.low || ''}
+                          onChange={(e) => {
+                            if (hasMissingError) {
+                              setObligatoryErrorIds((prev) => prev.filter((id) => id !== param.id));
+                            }
+                            const updatedParams = spec.selection_params.map((p) =>
+                              p.id === param.id ? { ...p, low: e.target.value } : p
+                            );
+                            if (onUpdateSpec) onUpdateSpec({ ...spec, selection_params: updatedParams });
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'F4') {
+                              e.preventDefault();
+                              setF4Target({ param, side: 'low' });
+                            }
+                          }}
+                          placeholder={param.default_val || ''}
+                          className={`w-32 bg-white border pl-2 pr-6 py-0.5 text-xs font-mono focus:outline-none shadow-inner ${
+                            hasMissingError
+                              ? 'border-red-600 ring-1 ring-red-500 bg-red-50/40'
+                              : 'border-slate-400 focus:border-blue-600'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setF4Target({ param, side: 'low' })}
+                          title="F4 Input Help"
+                          className="absolute right-0.5 p-0.5 text-slate-400 hover:text-blue-700 cursor-pointer"
+                        >
+                          <Search className="w-3 h-3" />
+                        </button>
+                      </div>
                       {param.kind === 'SELECT_OPTION' && (
                         <>
                           <span className="text-slate-500">~</span>
-                          <input
-                            type="text"
-                            value={param.high || ''}
-                            onChange={(e) => {
-                              const updatedParams = spec.selection_params.map((p) =>
-                                p.id === param.id ? { ...p, high: e.target.value } : p
-                              );
-                              if (onUpdateSpec) onUpdateSpec({ ...spec, selection_params: updatedParams });
-                            }}
-                            placeholder="To"
-                            className="w-32 bg-white border border-slate-400 px-2 py-0.5 text-xs font-mono focus:outline-none focus:border-blue-600 shadow-inner"
-                          />
+                          <div className="relative flex items-center">
+                            <input
+                              type="text"
+                              value={param.high || ''}
+                              onChange={(e) => {
+                                const updatedParams = spec.selection_params.map((p) =>
+                                  p.id === param.id ? { ...p, high: e.target.value } : p
+                                );
+                                if (onUpdateSpec) onUpdateSpec({ ...spec, selection_params: updatedParams });
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'F4') {
+                                  e.preventDefault();
+                                  setF4Target({ param, side: 'high' });
+                                }
+                              }}
+                              placeholder="To"
+                              className="w-32 bg-white border border-slate-400 pl-2 pr-6 py-0.5 text-xs font-mono focus:outline-none focus:border-blue-600 shadow-inner"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setF4Target({ param, side: 'high' })}
+                              title="F4 Input Help"
+                              className="absolute right-0.5 p-0.5 text-slate-400 hover:text-blue-700 cursor-pointer"
+                            >
+                              <Search className="w-3 h-3" />
+                            </button>
+                          </div>
                           <button
                             type="button"
                             onClick={() => setActiveParamForMulti(param)}
-                            className="px-2 py-0.5 bg-[#ece9d8] border border-slate-400 hover:bg-white text-emerald-700 font-bold text-xs cursor-pointer"
+                            title={
+                              multiCount > 0
+                                ? `Multiple Selection (${multiCount} condition(s) active)`
+                                : 'Multiple Selection (Single / Ranges / Exclude)'
+                            }
+                            className={`px-2 py-0.5 border font-bold text-xs cursor-pointer transition-colors ${
+                              multiCount > 0
+                                ? 'bg-emerald-100 border-emerald-600 text-emerald-800 hover:bg-emerald-200'
+                                : 'bg-[#ece9d8] border-slate-400 hover:bg-white text-emerald-700'
+                            }`}
                           >
-                            ▶
+                            ▶{multiCount > 0 ? ` ${multiCount}` : ''}
                           </button>
                         </>
                       )}
@@ -1301,25 +1879,44 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                 );
               }
 
-              return segments.map((seg, segIdx) =>
-                seg.type === 'box' ? (
-                  <fieldset
-                    key={seg.key}
-                    className={`border rounded p-4 pt-2.5 shadow-xs max-w-2xl bg-white ${themeStyles.selectionBoxBorder}`}
-                  >
-                    <legend className="px-2 text-xs font-bold text-slate-800 flex items-center gap-2">
-                      <span>{seg.blockTitle}</span>
-                      <span className="font-mono text-[10px] font-normal text-slate-400">
-                        BLOCK {seg.blockId.toUpperCase()}
-                      </span>
-                    </legend>
-                    <div className="space-y-2.5 mt-1">{seg.items.map(renderParamRow)}</div>
-                  </fieldset>
-                ) : (
-                  <div key={seg.key || `unboxed-${segIdx}`} className="max-w-2xl px-4 py-2 space-y-2.5">
-                    {seg.items.map(renderParamRow)}
+              return (
+                <>
+                  {segments.map((seg, segIdx) =>
+                    seg.type === 'box' ? (
+                      <fieldset
+                        key={seg.key}
+                        className={`border rounded p-4 pt-2.5 shadow-xs max-w-2xl bg-white ${themeStyles.selectionBoxBorder}`}
+                      >
+                        <legend className="px-2 text-xs font-bold text-slate-800 flex items-center gap-2">
+                          <span>{seg.blockTitle}</span>
+                          <span className="font-mono text-[10px] font-normal text-slate-400">
+                            BLOCK {seg.blockId.toUpperCase()}
+                          </span>
+                        </legend>
+                        <div className="space-y-2.5 mt-1">{seg.items.map(renderParamRow)}</div>
+                      </fieldset>
+                    ) : (
+                      <div key={seg.key || `unboxed-${segIdx}`} className="max-w-2xl px-4 py-2 space-y-2.5">
+                        {seg.items.map(renderParamRow)}
+                      </div>
+                    )
+                  )}
+
+                  {/* Execute (F8) Action Bar inside Selection Screen */}
+                  <div className="max-w-2xl flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-slate-500">
+                      Tip: Press <kbd className="px-1 py-0.5 bg-white border border-slate-300 rounded font-mono text-[10px]">F4</kbd> inside inputs for value help, or <kbd className="px-1 py-0.5 bg-white border border-slate-300 rounded font-mono text-[10px]">F8</kbd> to execute.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleExecuteSelection}
+                      className="px-3.5 py-1.5 bg-[#e8f1fa] hover:bg-white border border-[#9bbadb] text-slate-800 font-bold text-xs rounded shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 text-emerald-600 fill-emerald-600" />
+                      <span>Execute (F8)</span>
+                    </button>
                   </div>
-                )
+                </>
               );
             })()}
           </div>
@@ -1634,10 +2231,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                       setItemSortField(fld);
                       setItemSortAsc(asc);
                     }}
-                    onFilter={() => {
-                      const q = prompt('Enter search filter for Item Grid:', itemFilterQuery);
-                      if (q !== null) setItemFilterQuery(q);
-                    }}
+                    onFind={() => setFilterModalState({ open: true, mode: 'find', target: 'item' })}
+                    onFilter={() => setFilterModalState({ open: true, mode: 'filter', target: 'item' })}
                     filterQuery={itemFilterQuery}
                     onClearFilter={() => setItemFilterQuery('')}
                     onToggleTotals={() => setShowItemTotals(!showItemTotals)}
@@ -1649,7 +2244,12 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                         type: 'S',
                       });
                     }}
-                    onCustomAction={(btn) => alert(`[Item ALV] ${btn.text} (${btn.function})`)}
+                    onCustomAction={(btn) =>
+                      setStatusMessage({
+                        text: `[Item ALV] Button [${btn.text}] (${btn.function}) executed.`,
+                        type: 'S',
+                      })
+                    }
                   />
 
                   {/* Item Grid Table */}
@@ -1752,7 +2352,20 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                                         <input
                                           type="text"
                                           value={val !== undefined && val !== null ? String(val) : ''}
-                                          readOnly
+                                          onChange={(e) => {
+                                            if (!onUpdateSpec || !spec.item_grid) return;
+                                            const nextItemRows = spec.item_grid.mock_rows.map((mr) =>
+                                              mr === row ? { ...mr, [field.fieldname]: e.target.value } : mr
+                                            );
+                                            onUpdateSpec({
+                                              ...spec,
+                                              item_grid: { ...spec.item_grid, mock_rows: nextItemRows },
+                                            });
+                                            setStatusMessage({
+                                              text: `Item row ${rIdx + 1} [${field.coltext}] updated.`,
+                                              type: 'S',
+                                            });
+                                          }}
                                           className="w-full bg-white border border-slate-300 focus:border-blue-500 focus:bg-white px-1 text-xs text-slate-900 rounded-none shadow-2xs"
                                         />
                                       ) : (
@@ -1824,7 +2437,13 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                     <div className="flex items-center gap-2 text-[10px] font-mono text-slate-600 font-normal">
                       <span>SEL_MODE: {spec.layout.sel_mode || 'A'}</span>
                       <span>|</span>
-                      <span>줄무늬(Zebra): {spec.layout.zebra ? 'ON' : 'OFF'}</span>
+                      <span>줄무늬(Zebra): {effectiveZebra ? 'ON' : 'OFF'}</span>
+                      {effectiveSubtotalField && (
+                        <>
+                          <span>|</span>
+                          <span className="text-amber-800 font-bold">SUBTOT: {effectiveSubtotalField}</span>
+                        </>
+                      )}
                       <span>|</span>
                       <span>총 {displayedRows.length}건</span>
                     </div>
@@ -1839,13 +2458,13 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                     <thead className={`sticky top-0 z-10 ${themeStyles.gridHeaderBg} border-b ${themeStyles.gridHeaderBorder} ${themeStyles.gridHeaderText}`}>
                       <tr>
                         {!spec.layout?.no_rowmark && (
-                          <th className={`w-8 px-1 py-1 ${!spec.layout?.no_vgridln ? `border-r ${themeStyles.gridHeaderBorder}` : ''} ${themeStyles.gridCornerBg} text-center`}>
+                          <th className={`w-8 px-1 py-1 ${!effectiveNoVgrid ? `border-r ${themeStyles.gridHeaderBorder}` : ''} ${themeStyles.gridCornerBg} text-center`}>
                             <div className="w-3.5 h-3.5 mx-auto border border-slate-600 bg-white flex items-center justify-center">
                               <span className="text-[9px] text-blue-900 leading-none font-bold">▶</span>
                             </div>
                           </th>
                         )}
-                        {spec.field_catalog.map((field) => {
+                        {effectiveFieldCatalog.map((field) => {
                           const isKey = field.key;
                           const isColSelected = selectedColumnFields.includes(field.fieldname);
                           const colWidth = getColumnWidth(field);
@@ -1858,7 +2477,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                                 width: colWidth,
                                 minWidth: colWidth,
                               }}
-                              className={`px-2 py-1.5 ${!spec.layout?.no_vgridln ? `border-r ${themeStyles.gridHeaderBorder}` : ''} text-left font-semibold text-xs cursor-pointer select-none transition-all ${
+                              className={`px-2 py-1.5 ${!effectiveNoVgrid ? `border-r ${themeStyles.gridHeaderBorder}` : ''} text-left font-semibold text-xs cursor-pointer select-none transition-all ${
                                 isColSelected
                                   ? 'ring-2 ring-inset ring-blue-600 bg-blue-100 text-blue-950 font-bold'
                                   : isKey
@@ -1887,16 +2506,16 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                   )}
 
                   {/* Body */}
-                  <tbody className={spec.layout?.no_hgridln ? '' : 'divide-y divide-slate-200'}>
+                  <tbody className={effectiveNoHgrid ? '' : 'divide-y divide-slate-200'}>
                     {/* Top Totals Row: shown before data rows if totals_bef is active */}
-                    {spec.layout?.totals_bef && !spec.layout?.no_totline && showTotals && spec.field_catalog.some((f) => f.do_sum) && (
+                    {spec.layout?.totals_bef && !spec.layout?.no_totline && showTotals && effectiveFieldCatalog.some((f) => f.do_sum) && (
                       <tr className="bg-[#ffffa0] text-slate-900 h-7 border-b-2 border-yellow-500 font-bold shadow-xs">
                         {!spec.layout?.no_rowmark && (
-                          <td className={`w-8 px-1 py-1 h-7 text-center bg-yellow-200 ${!spec.layout?.no_vgridln ? 'border-r border-yellow-400' : ''} text-[10px] text-slate-900 font-bold select-none`}>
+                          <td className={`w-8 px-1 py-1 h-7 text-center bg-yellow-200 ${!effectiveNoVgrid ? 'border-r border-yellow-400' : ''} text-[10px] text-slate-900 font-bold select-none`}>
                             {!spec.layout?.no_totarr ? 'Σ' : ''}
                           </td>
                         )}
-                        {spec.field_catalog.map((field) => {
+                        {effectiveFieldCatalog.map((field) => {
                           const hasSum = !!field.do_sum;
                           const sumVal = totals[field.fieldname];
                           const colWidth = getColumnWidth(field);
@@ -1905,7 +2524,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                             <td
                               key={field.id || field.fieldname}
                               style={{ width: colWidth, minWidth: colWidth }}
-                              className={`px-2 py-1 h-7 ${!spec.layout?.no_vgridln ? 'border-r border-yellow-400' : ''} text-xs font-mono ${
+                              className={`px-2 py-1 h-7 ${!effectiveNoVgrid ? 'border-r border-yellow-400' : ''} text-xs font-mono ${
                                 isColSelected ? 'bg-yellow-200 ring-1 ring-inset ring-blue-500' : 'bg-[#ffffa0]'
                               } text-slate-900 ${
                                 hasSum ? 'text-right font-extrabold' : 'text-center'
@@ -1924,11 +2543,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                       </tr>
                     )}
 
-                    {/* Data Rows: hidden if totals_only is active */}
-                    {!spec.layout?.totals_only && (
+                    {/* Data Rows (with optional Group Subtotal rows): hidden if effectiveTotalsOnly is active */}
+                    {!effectiveTotalsOnly && (
                       displayedRows.length === 0 ? (
                         <tr>
-                          <td colSpan={spec.field_catalog.length + (spec.layout?.no_rowmark ? 0 : 1)} className="py-12 text-center text-slate-500">
+                          <td colSpan={effectiveFieldCatalog.length + (spec.layout?.no_rowmark ? 0 : 1)} className="py-12 text-center text-slate-500">
                             <p className="mb-2">No records found matching filters.</p>
                             <button
                               type="button"
@@ -1944,156 +2563,228 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                       ) : (
                         displayedRows.map((row, rIdx) => {
                           const isSelected = selectedRowIndex === rIdx;
-                          const isZebra = !!spec.layout?.zebra && rIdx % 2 === 1;
-                          return (
-                            <tr
-                              key={rIdx}
-                              onClick={() => {
-                                if (spec.layout?.sel_mode !== 'D') {
-                                  setSelectedRowIndex(rIdx);
-                                }
-                              }}
-                              className={`h-7 hover:bg-[#ebf3fb] cursor-pointer ${
-                                isSelected ? 'bg-[#fff5cc]' : isZebra ? 'bg-[#f4f7fb]' : 'bg-white'
-                              }`}
-                            >
-                              {!spec.layout?.no_rowmark && (
-                                <td className={`w-8 px-1 py-1 h-7 text-center bg-[#d4d0c8] ${!spec.layout?.no_vgridln ? 'border-r border-[#9bbadb]' : ''} border-t border-l border-[#f0ede6] border-b border-[#808080] font-mono text-[10px] text-slate-700 font-semibold select-none`}>
-                                  {spec.layout?.show_row_numbers ? (
-                                    rIdx + 1
-                                  ) : (
-                                    <div className="w-2.5 h-2 bg-[#d4d0c8] mx-auto" />
-                                  )}
-                                </td>
-                              )}
+                          const isZebra = effectiveZebra && rIdx % 2 === 1;
+                          const realIdx = rows.indexOf(row);
+                          const actualIdx = realIdx !== -1 ? realIdx : rIdx;
 
-                              {spec.field_catalog.map((field) => {
-                                const val = row[field.fieldname];
-                                const isKey = field.key;
-                                const isColSelected = selectedColumnFields.includes(field.fieldname);
-                                const isCellSelected = spec.layout?.sel_mode === 'D' && selectedCell?.rIdx === rIdx && selectedCell?.fieldname === field.fieldname;
-                                const colWidth = getColumnWidth(field);
-                                const isHotspot = field.hotspot || (spec.layout?.keyhot && field.key);
-                                const isStatusCol =
-                                  field.fieldname === 'ZICON' ||
-                                  field.fieldname === 'STATUS' ||
-                                  field.fieldname === 'LIGHTS' ||
-                                  field.coltext === '상태' ||
-                                  field.icon_type === 'DOC';
+                          // Check if a subtotal break occurs right after this row
+                          const currentGroupVal = effectiveSubtotalField ? String(row[effectiveSubtotalField] ?? '') : '';
+                          const nextRow = displayedRows[rIdx + 1];
+                          const nextGroupVal = effectiveSubtotalField && nextRow ? String(nextRow[effectiveSubtotalField] ?? '') : '';
+                          const isGroupEnd = !!effectiveSubtotalField && (rIdx === displayedRows.length - 1 || currentGroupVal !== nextGroupVal);
 
-                                const alignClass =
-                                  field.just === 'R'
-                                    ? 'text-right'
-                                    : field.just === 'C'
-                                    ? 'text-center'
-                                    : 'text-left';
-
-                                const cellStyle = getSapAlvCellStyle(
-                                  field.emphasize,
-                                  isKey,
-                                  isSelected,
-                                  isZebra,
-                                  !!field.edit
+                          let groupSums: Record<string, number> = {};
+                          if (isGroupEnd && effectiveSubtotalField) {
+                            const matchingGroupRows = displayedRows.filter(
+                              (gr) => String(gr[effectiveSubtotalField] ?? '') === currentGroupVal
+                            );
+                            effectiveFieldCatalog.forEach((ef) => {
+                              if (ef.do_sum) {
+                                groupSums[ef.fieldname] = matchingGroupRows.reduce(
+                                  (acc, gr) => acc + (Number(gr[ef.fieldname]) || 0),
+                                  0
                                 );
+                              }
+                            });
+                          }
 
-                                const cellBg = isCellSelected
-                                  ? 'bg-blue-100/90'
-                                  : isSelected
-                                  ? 'bg-[#fff5cc]'
-                                  : isColSelected
-                                  ? 'bg-blue-50/80 font-medium'
-                                  : cellStyle.bg;
-
-                                return (
-                                  <td
-                                    key={field.id || field.fieldname}
-                                    style={{
-                                      width: colWidth,
-                                      minWidth: colWidth,
-                                      ...(!isSelected && !isColSelected ? cellStyle.style : {}),
-                                    }}
-                                    onClick={(e) => {
-                                      if (spec.layout?.sel_mode === 'D') {
-                                        setSelectedCell({ rIdx, fieldname: field.fieldname });
-                                      }
-                                      if (isStatusCol) {
-                                        e.stopPropagation();
-                                        handleCycleStatus(rIdx, field.fieldname);
-                                      }
-                                    }}
-                                    title={
-                                      isStatusCol
-                                        ? '클릭 시 Sta. 상태가 변경되며, 툴바 필터가 자동 갱신됩니다.'
-                                        : field.emphasize
-                                        ? `SAP 컬러: ${field.emphasize}`
-                                        : undefined
-                                    }
-                                    className={`px-2 py-1 h-7 ${!spec.layout?.no_vgridln ? 'border-r border-[#d8d8d8]' : ''} text-xs font-mono ${alignClass} ${cellBg} ${cellStyle.text} ${
-                                      isStatusCol ? 'cursor-pointer hover:brightness-95' : ''
-                                    } ${isColSelected && !isSelected ? 'border-x-blue-300' : ''} ${
-                                      isCellSelected ? 'ring-2 ring-inset ring-blue-600 font-bold' : ''
-                                    }`}
-                                  >
-                                    {field.icon_type === 'DOC' || val === 'DOC' ? (
-                                      <div className="flex items-center justify-center">
-                                        <svg viewBox="0 0 24 24" className="w-4 h-4 text-slate-700 fill-white stroke-slate-700 stroke-1 drop-shadow-2xs">
-                                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                          <polyline points="14 2 14 8 20 8" />
-                                        </svg>
-                                      </div>
-                                    ) : field.icon_type === 'FOLDER' || val === 'FOLDER' ? (
-                                      <div className="flex items-center justify-center">
-                                        <svg viewBox="0 0 24 24" className="w-4 h-4 fill-[#f6c342] stroke-[#c98e16] stroke-1 drop-shadow-2xs">
-                                          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                                        </svg>
-                                      </div>
-                                    ) : field.fieldname === 'ZICON' || field.fieldname === 'LIGHTS' || field.fieldname === 'STATUS' || val === '1' || val === '2' || val === '3' ? (
-                                      <div className="flex items-center justify-center">
-                                        {val === '1' || val === 1 ? (
-                                          <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border border-emerald-700 shadow-xs inline-block" />
-                                        ) : val === '2' || val === 2 ? (
-                                          <span className="w-3.5 h-3.5 rounded-full bg-amber-400 border border-amber-600 shadow-xs inline-block" />
-                                        ) : (
-                                          <span className="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-700 shadow-xs inline-block" />
-                                        )}
-                                      </div>
-                                    ) : field.checkbox ? (
-                                      <input
-                                        type="checkbox"
-                                        checked={!!val}
-                                        onChange={() => handleCheckboxToggle(rIdx)}
-                                        className="accent-blue-600"
-                                      />
-                                    ) : isHotspot ? (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setDrilldownInfo({
-                                            tcode: field.drilldown_tcode || (field.key ? 'VA03' : 'KAH3'),
-                                            fieldValue: String(val),
-                                            fieldName: field.fieldname,
-                                            fieldLabel: field.coltext,
-                                            rowRecord: row,
-                                          })
-                                        }
-                                        className="text-blue-700 hover:text-blue-900 underline font-semibold cursor-pointer"
-                                      >
-                                        {val !== undefined && val !== null ? String(val) : ''}
-                                      </button>
-                                    ) : field.edit ? (
-                                      <input
-                                        type="text"
-                                        value={val !== undefined && val !== null ? String(val) : ''}
-                                        onChange={(e) => handleCellEdit(rIdx, field.fieldname, e.target.value)}
-                                        className="w-full bg-white border border-slate-300 focus:border-blue-500 focus:bg-white px-1 text-xs text-slate-900 rounded-none shadow-2xs"
-                                      />
+                          return (
+                            <React.Fragment key={rIdx}>
+                              <tr
+                                onClick={() => {
+                                  if (spec.layout?.sel_mode !== 'D') {
+                                    setSelectedRowIndex(rIdx);
+                                  }
+                                }}
+                                className={`h-7 hover:bg-[#ebf3fb] cursor-pointer ${
+                                  isSelected ? 'bg-[#fff5cc]' : isZebra ? 'bg-[#f4f7fb]' : 'bg-white'
+                                }`}
+                              >
+                                {!spec.layout?.no_rowmark && (
+                                  <td className={`w-8 px-1 py-1 h-7 text-center bg-[#d4d0c8] ${!effectiveNoVgrid ? 'border-r border-[#9bbadb]' : ''} border-t border-l border-[#f0ede6] border-b border-[#808080] font-mono text-[10px] text-slate-700 font-semibold select-none`}>
+                                    {spec.layout?.show_row_numbers ? (
+                                      rIdx + 1
                                     ) : (
-                                      <span>{val !== undefined && val !== null ? String(val) : ''}</span>
+                                      <div className="w-2.5 h-2 bg-[#d4d0c8] mx-auto" />
                                     )}
                                   </td>
-                                );
-                              })}
-                            </tr>
+                                )}
+
+                                {effectiveFieldCatalog.map((field) => {
+                                  const val = row[field.fieldname];
+                                  const isKey = field.key;
+                                  const isColSelected = selectedColumnFields.includes(field.fieldname);
+                                  const isCellSelected = spec.layout?.sel_mode === 'D' && selectedCell?.rIdx === rIdx && selectedCell?.fieldname === field.fieldname;
+                                  const colWidth = getColumnWidth(field);
+                                  const isHotspot = field.hotspot || (spec.layout?.keyhot && field.key);
+                                  const isStatusCol =
+                                    field.fieldname === 'ZICON' ||
+                                    field.fieldname === 'STATUS' ||
+                                    field.fieldname === 'LIGHTS' ||
+                                    field.coltext === '상태' ||
+                                    field.icon_type === 'DOC';
+
+                                  const cellKey = `${actualIdx}:${field.fieldname}`;
+                                  const cellErr = cellErrors[cellKey];
+                                  const isDirty = dirtyCells.has(cellKey);
+
+                                  const alignClass =
+                                    field.just === 'R'
+                                      ? 'text-right'
+                                      : field.just === 'C'
+                                      ? 'text-center'
+                                      : 'text-left';
+
+                                  const cellStyle = getSapAlvCellStyle(
+                                    field.emphasize,
+                                    isKey,
+                                    isSelected,
+                                    isZebra,
+                                    !!field.edit
+                                  );
+
+                                  const cellBg = isCellSelected
+                                    ? 'bg-blue-100/90'
+                                    : isSelected
+                                    ? 'bg-[#fff5cc]'
+                                    : isColSelected
+                                    ? 'bg-blue-50/80 font-medium'
+                                    : cellStyle.bg;
+
+                                  return (
+                                    <td
+                                      key={field.id || field.fieldname}
+                                      style={{
+                                        width: colWidth,
+                                        minWidth: colWidth,
+                                        ...(!isSelected && !isColSelected ? cellStyle.style : {}),
+                                      }}
+                                      onClick={(e) => {
+                                        if (spec.layout?.sel_mode === 'D') {
+                                          setSelectedCell({ rIdx, fieldname: field.fieldname });
+                                        }
+                                        if (isStatusCol) {
+                                          e.stopPropagation();
+                                          handleCycleStatus(rIdx, field.fieldname);
+                                        }
+                                      }}
+                                      title={
+                                        cellErr
+                                          ? cellErr
+                                          : isStatusCol
+                                          ? '클릭 시 Sta. 상태가 변경되며, 툴바 필터가 자동 갱신됩니다.'
+                                          : field.emphasize
+                                          ? `SAP 컬러: ${field.emphasize}`
+                                          : undefined
+                                      }
+                                      className={`px-2 py-1 h-7 ${!effectiveNoVgrid ? 'border-r border-[#d8d8d8]' : ''} text-xs font-mono ${alignClass} ${cellBg} ${cellStyle.text} ${
+                                        isStatusCol ? 'cursor-pointer hover:brightness-95' : ''
+                                      } ${isColSelected && !isSelected ? 'border-x-blue-300' : ''} ${
+                                        isCellSelected ? 'ring-2 ring-inset ring-blue-600 font-bold' : ''
+                                      }`}
+                                    >
+                                      {field.icon_type === 'DOC' || val === 'DOC' ? (
+                                        <div className="flex items-center justify-center">
+                                          <svg viewBox="0 0 24 24" className="w-4 h-4 text-slate-700 fill-white stroke-slate-700 stroke-1 drop-shadow-2xs">
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                            <polyline points="14 2 14 8 20 8" />
+                                          </svg>
+                                        </div>
+                                      ) : field.icon_type === 'FOLDER' || val === 'FOLDER' ? (
+                                        <div className="flex items-center justify-center">
+                                          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-[#f6c342] stroke-[#c98e16] stroke-1 drop-shadow-2xs">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                                          </svg>
+                                        </div>
+                                      ) : field.fieldname === 'ZICON' || field.fieldname === 'LIGHTS' || field.fieldname === 'STATUS' || val === '1' || val === '2' || val === '3' ? (
+                                        <div className="flex items-center justify-center">
+                                          {val === '1' || val === 1 ? (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border border-emerald-700 shadow-xs inline-block" />
+                                          ) : val === '2' || val === 2 ? (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-amber-400 border border-amber-600 shadow-xs inline-block" />
+                                          ) : (
+                                            <span className="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-700 shadow-xs inline-block" />
+                                          )}
+                                        </div>
+                                      ) : field.checkbox ? (
+                                        <input
+                                          type="checkbox"
+                                          checked={!!val}
+                                          onChange={() => handleCheckboxToggle(rIdx)}
+                                          className="accent-blue-600"
+                                        />
+                                      ) : isHotspot ? (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setDrilldownInfo({
+                                              tcode: field.drilldown_tcode || (field.key ? 'VA03' : 'KAH3'),
+                                              fieldValue: String(val),
+                                              fieldName: field.fieldname,
+                                              fieldLabel: field.coltext,
+                                              rowRecord: row,
+                                            })
+                                          }
+                                          className="text-blue-700 hover:text-blue-900 underline font-semibold cursor-pointer"
+                                        >
+                                          {val !== undefined && val !== null ? String(val) : ''}
+                                        </button>
+                                      ) : field.edit ? (
+                                        <input
+                                          type="text"
+                                          value={val !== undefined && val !== null ? String(val) : ''}
+                                          onChange={(e) => handleCellEdit(rIdx, field.fieldname, e.target.value)}
+                                          className={`w-full px-1 text-xs text-slate-900 rounded-none shadow-2xs focus:outline-none ${
+                                            cellErr
+                                              ? 'bg-red-50 border-2 border-red-600 text-red-900'
+                                              : isDirty
+                                              ? 'bg-amber-50 border border-amber-500'
+                                              : 'bg-white border border-slate-300 focus:border-blue-500'
+                                          }`}
+                                        />
+                                      ) : (
+                                        <span>{val !== undefined && val !== null ? String(val) : ''}</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+
+                              {/* SAP ALV Group Subtotal Row (&SUBTOTAL) */}
+                              {isGroupEnd && effectiveSubtotalField && showTotals && effectiveFieldCatalog.some((f) => f.do_sum) && (
+                                <tr className="bg-[#fff7bd] text-slate-900 h-7 border-y border-amber-300 font-semibold">
+                                  {!spec.layout?.no_rowmark && (
+                                    <td className={`w-8 px-1 py-1 h-7 text-center bg-amber-100 ${!effectiveNoVgrid ? 'border-r border-amber-300' : ''} text-[10px] text-amber-900 font-bold select-none`}>
+                                      •
+                                    </td>
+                                  )}
+                                  {effectiveFieldCatalog.map((field) => {
+                                    const isSubCol = field.fieldname === effectiveSubtotalField;
+                                    const hasSum = !!field.do_sum;
+                                    const colWidth = getColumnWidth(field);
+                                    return (
+                                      <td
+                                        key={`sub-${field.fieldname}`}
+                                        style={{ width: colWidth, minWidth: colWidth }}
+                                        className={`px-2 py-1 h-7 ${!effectiveNoVgrid ? 'border-r border-amber-300' : ''} text-xs font-mono ${
+                                          hasSum ? 'text-right font-bold text-slate-950' : 'text-left text-amber-950'
+                                        }`}
+                                      >
+                                        {isSubCol ? (
+                                          <span className="text-[11px] font-sans font-bold">
+                                            Subtotal: {currentGroupVal || '(Blank)'}
+                                          </span>
+                                        ) : hasSum ? (
+                                          Number(groupSums[field.fieldname] || 0).toLocaleString()
+                                        ) : (
+                                          ''
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              )}
+                            </React.Fragment>
                           );
                         })
                       )
@@ -2101,15 +2792,15 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                   </tbody>
 
                   {/* Single ALV Total Row: Sticky bottom if !totals_bef. Height exactly matching regular row h-7 (RFQ v1.12) */}
-                  {!spec.layout?.totals_bef && !spec.layout?.no_totline && showTotals && spec.field_catalog.some((f) => f.do_sum) && (
+                  {!spec.layout?.totals_bef && !spec.layout?.no_totline && showTotals && effectiveFieldCatalog.some((f) => f.do_sum) && (
                     <tfoot className="sticky bottom-0 z-10 bg-[#ffffa0] border-t border-yellow-400 font-bold text-slate-900 shadow-xs">
                       <tr className="bg-[#ffffa0] text-slate-900 h-7">
                         {!spec.layout?.no_rowmark && (
-                          <td className={`w-8 px-1 py-1 h-7 text-center bg-yellow-200 ${!spec.layout?.no_vgridln ? 'border-r border-yellow-400' : ''} text-[10px] text-slate-900 font-bold select-none`}>
+                          <td className={`w-8 px-1 py-1 h-7 text-center bg-yellow-200 ${!effectiveNoVgrid ? 'border-r border-yellow-400' : ''} text-[10px] text-slate-900 font-bold select-none`}>
                             {!spec.layout?.no_totarr ? 'Σ' : ''}
                           </td>
                         )}
-                        {spec.field_catalog.map((field) => {
+                        {effectiveFieldCatalog.map((field) => {
                           const hasSum = !!field.do_sum;
                           const sumVal = totals[field.fieldname];
                           const colWidth = getColumnWidth(field);
@@ -2118,7 +2809,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                             <td
                               key={field.id || field.fieldname}
                               style={{ width: colWidth, minWidth: colWidth }}
-                              className={`px-2 py-1 h-7 ${!spec.layout?.no_vgridln ? 'border-r border-yellow-400' : ''} text-xs font-mono ${
+                              className={`px-2 py-1 h-7 ${!effectiveNoVgrid ? 'border-r border-yellow-400' : ''} text-xs font-mono ${
                                 isColSelected ? 'bg-yellow-200 ring-1 ring-inset ring-blue-500' : 'bg-[#ffffa0]'
                               } text-slate-900 ${
                                 hasSum ? 'text-right font-extrabold' : 'text-center'
@@ -2144,8 +2835,11 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
           </div>
         )}
 
-        {/* 5. [오류 로그] (Error Log ALV Sub-Window) - 100% Exact match to Screenshot! */}
-        {showErrorLog && spec.error_logs && spec.error_logs.length > 0 && (
+        {/* 5. [오류 로그] (Error Log ALV Sub-Window) - Displays live edit validation errors or spec error_logs */}
+        {(() => {
+          const activeErrorLogs = runtimeErrorLogs.length > 0 ? runtimeErrorLogs : (spec.error_logs || []);
+          if (!showErrorLog || activeErrorLogs.length === 0) return null;
+          return (
           <div className="absolute bottom-4 left-6 right-6 max-w-xl z-30 rounded border-2 border-red-500/80 shadow-2xl overflow-hidden bg-white">
             {/* Dark Blue Header matching screenshot */}
             <div
@@ -2158,11 +2852,12 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                 <div className="w-3.5 h-3.5 border border-white/80 rounded-2xs flex items-center justify-center">
                   <div className="w-1.5 h-1.5 bg-white/60" />
                 </div>
-                <span>오류 로그</span>
+                <span>오류 로그 ({activeErrorLogs.length})</span>
               </div>
               <button
+                type="button"
                 onClick={() => setShowErrorLog(false)}
-                className="hover:bg-white/20 p-0.5 rounded text-white"
+                className="hover:bg-white/20 p-0.5 rounded text-white cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -2185,7 +2880,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {spec.error_logs.map((err, idx) => (
+                  {activeErrorLogs.map((err, idx) => (
                     <tr key={err.id || idx} className="hover:bg-red-50/50">
                       {/* 유형: Red circular target error symbol */}
                       <td className="py-1 px-3 text-center border-r border-[#a4bedb] bg-white">
@@ -2216,7 +2911,8 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
               </table>
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* 6. SAP Status Bar with Dynamic Theme */}
@@ -2255,18 +2951,125 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
           param={activeParamForMulti}
           isOpen={!!activeParamForMulti}
           onClose={() => setActiveParamForMulti(null)}
-          onApply={(low, high) => {
+          onApply={(low, high, items) => {
             const updated = spec.selection_params.map(p =>
-              p.id === activeParamForMulti.id ? { ...p, low, high } : p
+              p.id === activeParamForMulti.id ? { ...p, low, high, multi_values: items } : p
             );
             if (onUpdateSpec) onUpdateSpec({ ...spec, selection_params: updated });
+            setObligatoryErrorIds((prev) => prev.filter((id) => id !== activeParamForMulti.id));
             setStatusMessage({
-              text: `[${activeParamForMulti.text}] 다중 조건 설정 완료`,
+              text: `[${activeParamForMulti.text}] Multiple selection updated (${items.length} condition(s)).`,
               type: 'S',
             });
           }}
         />
       )}
+
+      {f4Target && (
+        <SapF4ValueHelpModal
+          isOpen={!!f4Target}
+          param={f4Target.param}
+          targetSide={f4Target.side}
+          spec={spec}
+          onClose={() => setF4Target(null)}
+          onSelectValue={(val) => {
+            const updated = spec.selection_params.map((p) =>
+              p.id === f4Target.param.id
+                ? { ...p, [f4Target.side]: val }
+                : p
+            );
+            if (onUpdateSpec) onUpdateSpec({ ...spec, selection_params: updated });
+            setObligatoryErrorIds((prev) => prev.filter((id) => id !== f4Target.param.id));
+            setStatusMessage({
+              text: `F4 Value "${val}" assigned to ${f4Target.param.name}.`,
+              type: 'S',
+            });
+          }}
+        />
+      )}
+
+      <SapAlvFilterModal
+        isOpen={filterModalState.open}
+        mode={filterModalState.mode}
+        fieldCatalog={
+          filterModalState.target === 'item'
+            ? spec.item_grid?.field_catalog || []
+            : spec.field_catalog
+        }
+        currentFilter={
+          filterModalState.target === 'item'
+            ? { fieldname: '__ALL__', operator: 'contains', value: itemFilterQuery }
+            : columnFilter
+        }
+        onClose={() => setFilterModalState((prev) => ({ ...prev, open: false }))}
+        onApplyFilter={(next) => {
+          if (filterModalState.target === 'item') {
+            setItemFilterQuery(next.value);
+            setStatusMessage({
+              text: next.value ? `Item Grid filtered by "${next.value}".` : 'Item Grid filter cleared.',
+              type: 'S',
+            });
+          } else {
+            setColumnFilter(next);
+            setFilterQuery(next.fieldname === '__ALL__' ? next.value : `${next.fieldname}: ${next.value}`);
+            setStatusMessage({
+              text: next.value
+                ? `ALV Filter applied (${next.fieldname === '__ALL__' ? 'All columns' : next.fieldname} ${next.operator} "${next.value}").`
+                : 'ALV Filter cleared.',
+              type: 'S',
+            });
+          }
+        }}
+        onFindText={(term) => {
+          if (filterModalState.target === 'item') {
+            setItemFilterQuery(term);
+          } else {
+            handleFindInRows(term);
+          }
+        }}
+      />
+
+      <SapAlvLayoutModal
+        isOpen={isLayoutModalOpen}
+        programId={spec.program_id}
+        fieldCatalog={spec.field_catalog}
+        currentConfig={
+          layoutOverride || {
+            visibleFields: spec.field_catalog.map((f) => f.fieldname),
+            subtotalField: null,
+            zebra: !!spec.layout?.zebra,
+            cwidth_opt: isOptimizedWidth,
+            no_hgridln: !!spec.layout?.no_hgridln,
+            no_vgridln: !!spec.layout?.no_vgridln,
+          }
+        }
+        onClose={() => setIsLayoutModalOpen(false)}
+        onApplyConfig={(cfg, variantName) => {
+          setLayoutOverride(cfg);
+          setIsOptimizedWidth(cfg.cwidth_opt);
+          if (cfg.subtotalField) {
+            handleMultiSort([cfg.subtotalField], true);
+            setShowTotals(true);
+          }
+          if (variantName) {
+            setActiveLayoutVariantName(variantName === '/STANDARD' ? null : variantName);
+          }
+          setStatusMessage({
+            text: variantName
+              ? `Layout variant [${variantName}] applied (${cfg.visibleFields.length} columns visible).`
+              : `Layout updated (${cfg.visibleFields.length} columns visible).`,
+            type: 'S',
+          });
+        }}
+      />
+
+      <SapBusinessGraphicModal
+        isOpen={isGraphicModalOpen}
+        title={spec.layout?.grid_title || spec.title}
+        fieldCatalog={effectiveFieldCatalog}
+        rows={displayedRows}
+        onClose={() => setIsGraphicModalOpen(false)}
+      />
 
       {drilldownInfo && (
         <DrilldownModal
@@ -2285,7 +3088,7 @@ export const SapGuiMockup: React.FC<SapGuiMockupProps> = ({
           isOpen={isDetailModalOpen}
           onClose={() => setIsDetailModalOpen(false)}
           record={displayedRows[selectedRowIndex || 0] || null}
-          fieldCatalog={spec.field_catalog}
+          fieldCatalog={effectiveFieldCatalog}
           rowIndex={selectedRowIndex || 0}
           totalRows={displayedRows.length}
           onPrevRow={() => setSelectedRowIndex(prev => Math.max(0, (prev || 0) - 1))}
