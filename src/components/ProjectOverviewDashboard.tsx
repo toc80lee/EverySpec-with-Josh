@@ -126,19 +126,10 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
     return counts;
   }, [projectSpecs]);
 
-  // Only modules configured on the active project
-  const configuredProjectModules = useMemo(() => {
-    const activeSet = new Set(activeProject?.modules || []);
-    return SAP_MODULES.filter((mod) => activeSet.has(mod.code));
-  }, [activeProject]);
-
-  // Program list filter chips: configured project modules + any module with existing specs
-  const listFilterModules = useMemo(() => {
-    const activeSet = new Set(activeProject?.modules || []);
-    return SAP_MODULES.filter(
-      (mod) => activeSet.has(mod.code) || (moduleCounts[mod.code] || 0) > 0
-    );
-  }, [activeProject, moduleCounts]);
+  // Only modules that actually have at least one specification in the active project
+  const modulesWithSpecs = useMemo(() => {
+    return SAP_MODULES.filter((mod) => (moduleCounts[mod.code] || 0) > 0);
+  }, [moduleCounts]);
 
   const favoriteIdSet = useMemo(
     () => new Set(favoriteProgramIds.map((id) => id.toUpperCase())),
@@ -504,18 +495,20 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
               )}
             </section>
 
-            {/* Module Breakdown Section (Strictly shows project-configured modules) */}
+            {/* Module Breakdown Section (Only shows modules with >= 1 spec) */}
             <section className="space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    모듈별 사양서 현황{' '}
-                    <span className="ml-1 font-mono text-xs font-semibold text-blue-700">
-                      ({configuredProjectModules.length}개 설정됨)
-                    </span>
+                    모듈별 사양서 현황
+                    {modulesWithSpecs.length > 0 && (
+                      <span className="ml-1.5 font-mono text-xs font-semibold text-blue-700">
+                        ({modulesWithSpecs.length}개 모듈)
+                      </span>
+                    )}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    현재 프로젝트에 설정된 활성 모듈만 표시됩니다. 모듈을 클릭하면 해당 모듈의 프로그램 리스트로 이동합니다.
+                    사양서가 등록된 모듈만 표시됩니다. 모듈을 클릭하면 해당 모듈의 프로그램 리스트로 이동합니다.
                   </p>
                 </div>
                 {!isCommonProject && !isTempProject && (
@@ -530,44 +523,38 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
                 )}
               </div>
 
-              {configuredProjectModules.length === 0 ? (
-                <div className="p-6 bg-white border border-slate-200 rounded-xl text-center space-y-2">
+              {modulesWithSpecs.length === 0 ? (
+                <div className="p-6 bg-white border border-slate-200 rounded-xl text-center space-y-2.5">
                   <p className="text-xs text-slate-500">
-                    이 프로젝트에 설정된 활성 모듈이 없습니다.
+                    현재 프로젝트에 등록된 사양서가 없어 표시할 모듈이 없습니다.
                   </p>
-                  <button
-                    type="button"
-                    onClick={onOpenProjectManager}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                    <span>모듈 설정하기</span>
-                  </button>
+                  {!isCommonProject && (
+                    <button
+                      type="button"
+                      onClick={() => onCreateNewProgram(newTargetProject)}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>새 프로그램 작성</span>
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                  {configuredProjectModules.map((mod) => {
+                  {modulesWithSpecs.map((mod) => {
                     const count = moduleCounts[mod.code] || 0;
                     return (
                       <button
                         key={mod.code}
                         type="button"
                         onClick={() => handleOpenModuleList(mod.code)}
-                        className={`p-4 bg-white border rounded-xl text-left transition-all cursor-pointer group ${
-                          count > 0
-                            ? 'border-slate-200 hover:border-blue-400'
-                            : 'border-slate-200/80 hover:border-slate-300 opacity-90'
-                        }`}
+                        className="p-4 bg-white border border-slate-200 hover:border-blue-400 rounded-xl text-left transition-all cursor-pointer group"
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-mono text-sm font-bold text-slate-900 group-hover:text-blue-700">
                             {mod.code}
                           </span>
-                          <span
-                            className={`font-mono tabular-nums text-lg font-bold ${
-                              count > 0 ? 'text-blue-600' : 'text-slate-400'
-                            }`}
-                          >
+                          <span className="font-mono tabular-nums text-lg font-bold text-blue-600">
                             {count}
                           </span>
                         </div>
@@ -612,7 +599,7 @@ export const ProjectOverviewDashboard: React.FC<ProjectOverviewDashboardProps> =
                 >
                   ALL ({projectSpecs.length})
                 </button>
-                {listFilterModules.map((mod) => {
+                {modulesWithSpecs.map((mod) => {
                   const cnt = moduleCounts[mod.code] || 0;
                   return (
                     <button
